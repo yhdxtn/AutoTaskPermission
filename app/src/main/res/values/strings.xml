@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">自动任务助手</string>
+    <string name="home_title">权限准备</string>
+    <string name="home_subtitle">开启后返回本页，状态会自动刷新。</string>
+    <string name="overlay_permission_title">悬浮窗权限</string>
+    <string name="accessibility_permission_title">无障碍权限</string>
+    <string name="permission_granted">已开启</string>
+    <string name="permission_not_granted">未开启 · 点击前往设置</string>
+    <string name="settings_unavailable">当前设备无法打开对应设置页面</string>
+    <string name="version_note">v1.0.0 仅负责获取和展示权限状态，不执行自动点击、控件查找或坐标手势。</string>
+    <string name="accessibility_service_name">自动任务助手服务</string>
+    <string name="accessibility_service_description">用于后续由用户主动配置的自动化任务。v1.0.0 不读取界面内容，也不执行点击。</string>
+</resources>
