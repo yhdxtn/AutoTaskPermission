@@ -349,11 +349,13 @@ class FloatingLogService : Service() {
         activationPrefs.getString(KEY_SELECTED_FEATURE, null)?.takeIf { it.isNotBlank() } ?: "当前功能"
 
     private fun sendRunnerCommand(command: String, featureName: String) {
+        val repeat = activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3).coerceIn(1, 999)
         sendBroadcast(
             Intent(AutomationAccessibilityService.ACTION_RUNNER_COMMAND)
                 .setPackage(packageName)
                 .putExtra(AutomationAccessibilityService.EXTRA_RUNNER_COMMAND, command)
                 .putExtra(AutomationAccessibilityService.EXTRA_FEATURE_NAME, featureName)
+                .putExtra(AutomationAccessibilityService.EXTRA_APP_LOOP_REPEAT, repeat)
         )
     }
 
@@ -496,6 +498,7 @@ class FloatingLogService : Service() {
         private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
         private const val KEY_SELECTED_FEATURE = "selected_feature"
         private const val KEY_FEATURE_RUNNING = "feature_running"
+        private const val KEY_APP_LOOP_REPEAT = "app_loop_repeat"
         private const val ACTION_START_FEATURE = "start"
         private const val ACTION_PAUSE_FEATURE = "pause"
     }

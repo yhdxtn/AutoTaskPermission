@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -376,11 +377,26 @@ class MainActivity : Activity() {
             textSize = 14f
             setLineSpacing(dp(3).toFloat(), 1f)
         })
+        val loopRepeatInput = EditText(this).apply {
+            hint = "本次循环次数（后台选 App 自定时生效）"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            setText(activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3).toString())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+        }
+        content.addView(loopRepeatInput)
 
         val dialog = AlertDialog.Builder(this)
             .setTitle(item.label)
             .setView(content)
-            .setPositiveButton("开始") { _, _ -> startFeature(item.label) }
+            .setPositiveButton("开始") { _, _ ->
+                val loopRepeat = loopRepeatInput.text.toString().toIntOrNull()?.coerceIn(1, 999)
+                    ?: activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3)
+                startFeature(item.label, loopRepeat)
+            }
             .setNegativeButton("暂停") { _, _ -> pauseFeature(item.label) }
             .setNeutralButton("介绍") { _, _ ->
                 Toast.makeText(this, "先在后台流程编排里录动作，再回到这里点开始。", Toast.LENGTH_LONG).show()
@@ -394,15 +410,17 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun startFeature(featureName: String) {
+    private fun startFeature(featureName: String, appLoopRepeat: Int = activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3)) {
+        val repeat = appLoopRepeat.coerceIn(1, 999)
         activationPrefs.edit()
             .putString(KEY_SELECTED_FEATURE, featureName)
+            .putInt(KEY_APP_LOOP_REPEAT, repeat)
             .putBoolean(KEY_FEATURE_RUNNING, true)
             .apply()
         updateTaskStatus()
-        sendFloatingLog("开始执行：$featureName")
+        sendFloatingLog("开始执行：$featureName，本次循环 $repeat 次")
         sendRunnerStatus("运行中", featureName)
-        sendRunnerCommand(ACTION_START_FEATURE, featureName)
+        sendRunnerCommand(ACTION_START_FEATURE, featureName, repeat)
         Toast.makeText(this, "已开始：$featureName", Toast.LENGTH_SHORT).show()
     }
 
@@ -550,12 +568,13 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun sendRunnerCommand(command: String, featureName: String) {
+    private fun sendRunnerCommand(command: String, featureName: String, appLoopRepeat: Int = activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3)) {
         sendBroadcast(
             Intent(AutomationAccessibilityService.ACTION_RUNNER_COMMAND)
                 .setPackage(packageName)
                 .putExtra(AutomationAccessibilityService.EXTRA_RUNNER_COMMAND, command)
                 .putExtra(AutomationAccessibilityService.EXTRA_FEATURE_NAME, featureName)
+                .putExtra(AutomationAccessibilityService.EXTRA_APP_LOOP_REPEAT, appLoopRepeat.coerceIn(1, 999))
         )
     }
 
@@ -646,6 +665,7 @@ class MainActivity : Activity() {
         private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
         private const val KEY_SELECTED_FEATURE = "selected_feature"
         private const val KEY_FEATURE_RUNNING = "feature_running"
+        private const val KEY_APP_LOOP_REPEAT = "app_loop_repeat"
         private const val ACTION_START_FEATURE = "start"
         private const val ACTION_PAUSE_FEATURE = "pause"
     }

@@ -1173,8 +1173,15 @@
                   <input type="number" min="0.2" step="0.1" v-model.number="activeNode.pollSeconds">
                 </div>
                 <div class="field" v-if="activeNode.type === 'loop'">
+                  <label>循环次数来源</label>
+                  <select v-model="activeNode.repeatSource">
+                    <option value="fixed">后台固定</option>
+                    <option value="app">App 启动时填写</option>
+                  </select>
+                </div>
+                <div class="field" v-if="activeNode.type === 'loop'">
                   <label>循环次数</label>
-                  <input type="number" min="1" max="999" v-model.number="activeNode.repeatCount">
+                  <input type="number" min="1" max="999" v-model.number="activeNode.repeatCount" :placeholder="activeNode.repeatSource === 'app' ? 'App 未填写时使用' : '这段流程总共执行几轮'">
                 </div>
                 <div class="field" v-if="activeNode.type === 'loop'">
                   <label>每轮继续概率（%）</label>
@@ -1213,6 +1220,16 @@
             <label class="muted">连线前等待</label>
             <input class="compact" type="number" min="0" step="0.5" v-model.number="edgeDelaySeconds">
             <span class="muted">秒</span>
+            <label class="muted">循环从</label>
+            <select v-model="loopStartNodeId">
+              <option value="">选择起点</option>
+              <option v-for="node in graphNodes" :key="node.id" :value="node.id">{{ node.label }}</option>
+            </select>
+            <label class="muted">到</label>
+            <select v-model="loopEndNodeId">
+              <option value="">选择终点</option>
+              <option v-for="node in graphNodes" :key="node.id" :value="node.id">{{ node.label }}</option>
+            </select>
             <label class="muted">循环前</label>
             <input class="compact" type="number" min="1" max="20" step="1" v-model.number="loopBackCount">
             <span class="muted">步</span>
@@ -1220,6 +1237,11 @@
             <span class="muted">次</span>
             <input class="compact" type="number" min="0" max="100" step="1" v-model.number="loopProbability" title="每轮继续概率">
             <span class="muted">%</span>
+            <select v-model="loopRepeatSource" title="循环次数来源">
+              <option value="fixed">后台固定</option>
+              <option value="app">App自定</option>
+            </select>
+            <button class="small" @click="wrapSelectedNodeRangeAsLoop">循环选中段</button>
             <button class="small" @click="wrapPreviousNodesAsLoop">循环前几步</button>
             <button class="small" @click="clearConnecting">取消连线</button>
             <button class="small" @click="autoLayout">自动整理</button>
@@ -1285,7 +1307,7 @@
                 <div v-if="node.type === 'swipe'">{{ swipeNodeSummary(node) }}</div>
                 <div v-if="node.type === 'input'">{{ inputNodeSummary(node) }}</div>
                 <div v-if="nodeLoopSummary(node)">{{ nodeLoopSummary(node) }}</div>
-                <div v-if="node.type === 'loop'">循环 {{ node.repeatCount || 1 }} 次，概率 {{ node.loopProbability ?? 100 }}%，间隔 {{ node.intervalSeconds || 0 }} 秒</div>
+                <div v-if="node.type === 'loop'">{{ loopNodeSummary(node) }}</div>
                 <div>执行后等待 {{ node.waitSeconds || 0 }} 秒</div>
               </div>
             </article>
@@ -1458,9 +1480,12 @@
           edgeMode: 'next',
           edgeProbability: 100,
           edgeDelaySeconds: 0,
+          loopStartNodeId: '',
+          loopEndNodeId: '',
           loopBackCount: 2,
           loopRepeatCount: 3,
           loopProbability: 100,
+          loopRepeatSource: 'fixed',
           loopIntervalSeconds: 1,
           dragState: null,
           panState: null,
@@ -2007,7 +2032,12 @@
             if (node.loopProbability == null) node.loopProbability = 100;
             if (node.intervalSeconds == null) node.intervalSeconds = 0;
           }
-          if (node.type === 'loop' && node.loopProbability == null) node.loopProbability = 100;
+          if (node.type === 'loop') {
+            if (node.loopProbability == null) node.loopProbability = 100;
+            if (!node.repeatCount) node.repeatCount = 1;
+            if (!node.repeatSource) node.repeatSource = 'fixed';
+            if (node.intervalSeconds == null) node.intervalSeconds = 0;
+          }
           return node;
         },
         normalizeActiveNode() {
@@ -2170,6 +2200,7 @@
             type: 'loop',
             label: '循环',
             repeatCount: 3,
+            repeatSource: 'fixed',
             loopBackCount: 2,
             loopProbability: 100,
             intervalSeconds: 1,
@@ -2191,6 +2222,7 @@
             type: 'loop',
             label: `循环前${count}步`,
             repeatCount: Math.max(1, Number(this.loopRepeatCount || 1)),
+            repeatSource: this.loopRepeatSource || 'fixed',
             loopBackCount: count,
             loopProbability: this.normalizedProbability(this.loopProbability),
             intervalSeconds: Math.max(0, Number(this.loopIntervalSeconds || 0)),
@@ -2203,6 +2235,40 @@
           this.addEdgeIfMissing(loopNode.id, first.id, 'loop', this.normalizedProbability(this.loopProbability), Math.max(0, Number(this.loopIntervalSeconds || 0)));
           this.activeNodeId = loopNode.id;
           this.notify(`已把前 ${count} 步接成循环，后续节点接到“循环结束”即可`);
+        },
+        wrapSelectedNodeRangeAsLoop() {
+          if (!this.loopStartNodeId || !this.loopEndNodeId) return this.notify('请选择循环起点和终点');
+          const startIndex = this.graphNodes.findIndex(node => node.id === this.loopStartNodeId);
+          const endIndex = this.graphNodes.findIndex(node => node.id === this.loopEndNodeId);
+          if (startIndex < 0 || endIndex < 0) return this.notify('循环起点或终点不存在');
+          if (startIndex > endIndex) return this.notify('循环起点要在终点前面');
+          const first = this.graphNodes[startIndex];
+          const last = this.graphNodes[endIndex];
+          const nextNode = this.graphNodes[endIndex + 1];
+          const loopNode = {
+            id: this.newId('node'),
+            type: 'loop',
+            label: `循环：${first.label}到${last.label}`.slice(0, 24),
+            repeatCount: Math.max(1, Number(this.loopRepeatCount || 1)),
+            repeatSource: this.loopRepeatSource || 'fixed',
+            loopStartNodeId: first.id,
+            loopEndNodeId: last.id,
+            loopProbability: this.normalizedProbability(this.loopProbability),
+            intervalSeconds: Math.max(0, Number(this.loopIntervalSeconds || 0)),
+            waitSeconds: 0,
+            x: last.x + 260,
+            y: last.y
+          };
+          this.graphNodes.push(loopNode);
+          this.graphEdges = this.graphEdges.filter(edge => {
+            const isDirectNext = edge.from === last.id && nextNode && edge.to === nextNode.id && ((edge.mode || 'next') === 'next');
+            return !isDirectNext;
+          });
+          this.addEdgeIfMissing(last.id, loopNode.id, 'next', 100, 0);
+          this.addEdgeIfMissing(loopNode.id, first.id, 'loop', this.normalizedProbability(this.loopProbability), Math.max(0, Number(this.loopIntervalSeconds || 0)));
+          if (nextNode) this.addEdgeIfMissing(loopNode.id, nextNode.id, 'done', 100, 0);
+          this.activeNodeId = loopNode.id;
+          this.notify(`已把“${first.label}”到“${last.label}”设为循环段`);
         },
         addEdgeIfMissing(from, to, mode, probability, delaySeconds) {
           const exists = this.graphEdges.some(edge => edge.from === from && edge.to === to && (edge.mode || 'next') === mode);
@@ -2457,6 +2523,16 @@
           const interval = Number(node.intervalSeconds || 0);
           if (count <= 1 && probability >= 100 && interval <= 0) return '';
           return `循环 ${count} 次，继续概率 ${probability}%，间隔 ${interval} 秒`;
+        },
+        loopNodeSummary(node) {
+          const source = node.repeatSource === 'app' ? 'App填写' : '后台固定';
+          const count = Number(node.repeatCount || 1);
+          const probability = node.loopProbability == null ? 100 : Number(node.loopProbability);
+          const interval = Number(node.intervalSeconds || 0);
+          const start = this.nodeById(node.loopStartNodeId)?.label;
+          const end = this.nodeById(node.loopEndNodeId)?.label;
+          const range = start && end ? `，范围 ${start} 到 ${end}` : '';
+          return `循环 ${count} 轮（${source}）${range}，概率 ${probability}%，间隔 ${interval} 秒`;
         },
         recognizePageSummary(node) {
           if (!node?.pageName) return '先在左侧记录当前页面，再选择页面模板。';

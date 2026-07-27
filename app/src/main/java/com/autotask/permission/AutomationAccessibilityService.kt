@@ -31,6 +31,7 @@ class AutomationAccessibilityService : AccessibilityService() {
     private var lastReportTime = 0L
     @Volatile private var runnerActive = false
     @Volatile private var currentFeature = ""
+    @Volatile private var appLoopRepeat = 3
     private val activationPrefs by lazy { getSharedPreferences("activation", MODE_PRIVATE) }
 
     private val runnerReceiver = object : BroadcastReceiver() {
@@ -38,8 +39,10 @@ class AutomationAccessibilityService : AccessibilityService() {
             if (intent?.action != ACTION_RUNNER_COMMAND) return
             val command = intent.getStringExtra(EXTRA_RUNNER_COMMAND).orEmpty()
             val featureName = intent.getStringExtra(EXTRA_FEATURE_NAME).orEmpty()
+            val repeat = intent.getIntExtra(EXTRA_APP_LOOP_REPEAT, activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3))
+                .coerceIn(1, 999)
             when (command) {
-                COMMAND_START -> startFeature(featureName)
+                COMMAND_START -> startFeature(featureName, repeat)
                 COMMAND_PAUSE -> pauseFeature(featureName)
             }
         }
@@ -90,14 +93,16 @@ class AutomationAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun startFeature(featureName: String) {
+    private fun startFeature(featureName: String, repeatFromApp: Int = activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3)) {
         val name = featureName.trim().ifBlank { "当前功能" }
         if (runnerActive && currentFeature == name) return
         currentFeature = name
+        appLoopRepeat = repeatFromApp.coerceIn(1, 999)
+        activationPrefs.edit().putInt(KEY_APP_LOOP_REPEAT, appLoopRepeat).apply()
         runnerActive = false
         executor.execute {
             runnerActive = true
-            sendFloatingLog("执行器已启动：$name")
+            sendFloatingLog("执行器已启动：$name，本次循环 $appLoopRepeat 次")
             runCatching {
                 val flow = loadFlowForFeature(name)
                 if (flow == null) {
@@ -124,7 +129,7 @@ class AutomationAccessibilityService : AccessibilityService() {
         if (!activationPrefs.getBoolean(KEY_FEATURE_RUNNING, false)) return
         val feature = activationPrefs.getString(KEY_SELECTED_FEATURE, null).orEmpty()
         if (feature.isBlank()) return
-        startFeature(feature)
+        startFeature(feature, activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3))
     }
 
     private fun loadFlowForFeature(featureName: String): FlowDefinition? {
@@ -265,13 +270,13 @@ class AutomationAccessibilityService : AccessibilityService() {
 
     private fun loopOutcome(node: FlowNode, loopRounds: MutableMap<String, Int>): String {
         val used = loopRounds.getOrDefault(node.id, 0)
-        val repeat = node.int("repeatCount", 1).coerceAtLeast(1)
+        val repeat = loopRepeatCount(node).coerceAtLeast(1)
         val probability = node.int("loopProbability", 100).coerceIn(0, 100)
-        val shouldLoop = used < repeat && (probability >= 100 || Random.nextInt(100) < probability)
+        val shouldLoop = used < repeat - 1 && (probability >= 100 || Random.nextInt(100) < probability)
         return if (shouldLoop) {
             loopRounds[node.id] = used + 1
-            sendFloatingLog("循环第 ${used + 1}/$repeat 轮：${node.label}")
-            sendRunnerStatus("循环中", "${node.label} ${used + 1}/$repeat")
+            sendFloatingLog("循环第 ${used + 2}/$repeat 轮：${node.label}")
+            sendRunnerStatus("循环中", "${node.label} ${used + 2}/$repeat")
             val interval = node.double("intervalSeconds", 0.0).coerceAtLeast(0.0)
             if (interval > 0) sleepSeconds(interval)
             "loop"
@@ -281,6 +286,14 @@ class AutomationAccessibilityService : AccessibilityService() {
             sendRunnerStatus("运行中", "循环结束，继续后续步骤")
             "done"
         }
+    }
+
+    private fun loopRepeatCount(node: FlowNode): Int {
+        return if (node.string("repeatSource") == "app") {
+            appLoopRepeat
+        } else {
+            node.int("repeatCount", 1)
+        }.coerceIn(1, 999)
     }
 
     private fun launchTargetApp(packageName: String) {
@@ -810,10 +823,12 @@ class AutomationAccessibilityService : AccessibilityService() {
         private const val AUTO_CAPTURE_ENABLED = false
         private const val KEY_SELECTED_FEATURE = "selected_feature"
         private const val KEY_FEATURE_RUNNING = "feature_running"
+        private const val KEY_APP_LOOP_REPEAT = "app_loop_repeat"
         private const val MAX_FLOW_STEPS = 220
         const val ACTION_RUNNER_COMMAND = "com.autotask.permission.RUNNER_COMMAND"
         const val EXTRA_RUNNER_COMMAND = "runner_command"
         const val EXTRA_FEATURE_NAME = "feature_name"
+        const val EXTRA_APP_LOOP_REPEAT = "app_loop_repeat"
         private const val COMMAND_START = "start"
         private const val COMMAND_PAUSE = "pause"
     }
