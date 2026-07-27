@@ -11,6 +11,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import kotlin.math.max
 
 class AutomationAccessibilityService : AccessibilityService() {
 
@@ -142,14 +143,16 @@ class AutomationAccessibilityService : AccessibilityService() {
         controls: List<ControlCapture>
     ): JSONObject {
         val metrics = resources.displayMetrics
+        val screenWidth = max(metrics.widthPixels, controls.maxOfOrNull { it.right } ?: 0)
+        val screenHeight = max(metrics.heightPixels, controls.maxOfOrNull { it.bottom } ?: 0)
         return JSONObject()
             .put("packageName", packageName)
             .put("appName", appLabel(packageName))
             .put("activityName", activityName)
             .put("deviceId", DeviceIdProvider.deviceId(this))
             .put("deviceName", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
-            .put("screenWidth", metrics.widthPixels)
-            .put("screenHeight", metrics.heightPixels)
+            .put("screenWidth", screenWidth)
+            .put("screenHeight", screenHeight)
             .put("controls", JSONArray().apply {
                 controls.forEach { control ->
                     put(JSONObject()

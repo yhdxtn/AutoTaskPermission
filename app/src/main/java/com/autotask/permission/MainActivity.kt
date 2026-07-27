@@ -107,6 +107,12 @@ class MainActivity : Activity() {
             updatePermissionStates()
             updateFloatingLogService()
         }
+        notifyFloatingLogAppVisibility(true)
+    }
+
+    override fun onPause() {
+        notifyFloatingLogAppVisibility(false)
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -347,14 +353,18 @@ class MainActivity : Activity() {
 
     private fun setupPermissions() {
         findViewById<View>(R.id.overlayRow).setOnClickListener {
-            openOverlayPermissionSettings()
+            if (!Settings.canDrawOverlays(this)) {
+                openOverlayPermissionSettings()
+            } else {
+                setFloatingWindowEnabled(!isFloatingWindowEnabled())
+            }
         }
         findViewById<View>(R.id.accessibilityRow).setOnClickListener {
             openAccessibilitySettings()
         }
         overlaySwitch.setOnCheckedChangeListener { _, checked ->
-            if (!updatingSwitches && checked != Settings.canDrawOverlays(this)) {
-                openOverlayPermissionSettings()
+            if (!updatingSwitches) {
+                setFloatingWindowEnabled(checked)
             }
         }
         accessibilitySwitch.setOnCheckedChangeListener { _, checked ->
@@ -381,14 +391,16 @@ class MainActivity : Activity() {
 
     private fun updatePermissionStates() {
         updatingSwitches = true
-        overlaySwitch.isChecked = Settings.canDrawOverlays(this)
+        overlaySwitch.isChecked = Settings.canDrawOverlays(this) && isFloatingWindowEnabled()
         accessibilitySwitch.isChecked = isAccessibilityServiceEnabled()
         updatingSwitches = false
     }
 
     private fun updateFloatingLogService() {
         val serviceIntent = Intent(this, FloatingLogService::class.java)
-        if (Settings.canDrawOverlays(this)) {
+            .putExtra(FloatingLogService.EXTRA_APP_VISIBLE, true)
+            .putExtra(FloatingLogService.EXTRA_FLOATING_ENABLED, isFloatingWindowEnabled())
+        if (Settings.canDrawOverlays(this) && isFloatingWindowEnabled()) {
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(serviceIntent)
@@ -401,6 +413,39 @@ class MainActivity : Activity() {
         } else {
             runCatching { stopService(serviceIntent) }
         }
+    }
+
+    private fun setFloatingWindowEnabled(enabled: Boolean) {
+        if (enabled && !Settings.canDrawOverlays(this)) {
+            activationPrefs.edit().putBoolean(KEY_FLOATING_WINDOW_ENABLED, true).apply()
+            updatePermissionStates()
+            openOverlayPermissionSettings()
+            return
+        }
+        activationPrefs.edit().putBoolean(KEY_FLOATING_WINDOW_ENABLED, enabled).apply()
+        updatePermissionStates()
+        updateFloatingLogService()
+        Toast.makeText(this, if (enabled) "悬浮窗已开启" else "悬浮窗已关闭", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun isFloatingWindowEnabled(): Boolean =
+        activationPrefs.getBoolean(KEY_FLOATING_WINDOW_ENABLED, true)
+
+    private fun notifyFloatingLogAppVisibility(visible: Boolean) {
+        if (activationReady && Settings.canDrawOverlays(this) && isFloatingWindowEnabled()) {
+            runCatching {
+                startService(
+                    Intent(this, FloatingLogService::class.java)
+                        .putExtra(FloatingLogService.EXTRA_APP_VISIBLE, visible)
+                        .putExtra(FloatingLogService.EXTRA_FLOATING_ENABLED, true)
+                )
+            }
+        }
+        sendBroadcast(
+            Intent(FloatingLogService.ACTION_APP_VISIBILITY)
+                .setPackage(packageName)
+                .putExtra(FloatingLogService.EXTRA_APP_VISIBLE, visible)
+        )
     }
 
     private fun applySystemBarInsets() {
@@ -478,5 +523,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val KEY_ACTIVATION_CODE = "activation_code"
+        private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
     }
 }

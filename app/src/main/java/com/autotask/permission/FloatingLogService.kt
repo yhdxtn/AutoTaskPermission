@@ -32,15 +32,33 @@ class FloatingLogService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var overlayView: View? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
+    private lateinit var bodyContainer: LinearLayout
+    private lateinit var titleView: TextView
+    private lateinit var foldButton: Button
     private lateinit var logView: TextView
     private lateinit var logScroll: ScrollView
     private val logLines = ArrayDeque<String>()
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.CHINA)
+    private var expanded = true
+    private var appVisible = false
+    private var expandedWidth = 0
+    private var expandedHeight = 0
+    private var collapsedWidth = 0
+    private var collapsedHeight = 0
 
     private val logReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val message = intent?.getStringExtra(EXTRA_MESSAGE) ?: return
-            appendLog(message)
+            when (intent?.action) {
+                ACTION_ACTIVITY_LOG -> {
+                    val message = intent.getStringExtra(EXTRA_MESSAGE) ?: return
+                    appendLog(message)
+                }
+                ACTION_APP_VISIBILITY -> {
+                    appVisible = intent.getBooleanExtra(EXTRA_APP_VISIBLE, false)
+                    updateOverlayVisibility()
+                }
+            }
         }
     }
 
@@ -50,28 +68,29 @@ class FloatingLogService : Service() {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, buildNotification())
             registerLogReceiver()
-            if (Settings.canDrawOverlays(this)) {
-                showOverlay()
-            }
         }.onFailure {
             stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra(EXTRA_FLOATING_ENABLED, true) == false) {
+            removeOverlay()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.hasExtra(EXTRA_APP_VISIBLE) == true) {
+            appVisible = intent.getBooleanExtra(EXTRA_APP_VISIBLE, false)
+        }
         if (overlayView == null && Settings.canDrawOverlays(this)) {
             runCatching { showOverlay() }.onFailure { stopSelf() }
         }
+        updateOverlayVisibility()
         return START_STICKY
     }
 
     override fun onDestroy() {
-        overlayView?.let { view ->
-            if (::windowManager.isInitialized) {
-                runCatching { windowManager.removeView(view) }
-            }
-        }
-        overlayView = null
+        removeOverlay()
         runCatching { unregisterReceiver(logReceiver) }
         super.onDestroy()
     }
@@ -79,7 +98,10 @@ class FloatingLogService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun registerLogReceiver() {
-        val filter = IntentFilter(ACTION_ACTIVITY_LOG)
+        val filter = IntentFilter().apply {
+            addAction(ACTION_ACTIVITY_LOG)
+            addAction(ACTION_APP_VISIBILITY)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(logReceiver, filter, RECEIVER_NOT_EXPORTED)
         } else {
@@ -93,31 +115,52 @@ class FloatingLogService : Service() {
         val metrics = resources.displayMetrics
         val screenWidth = metrics.widthPixels
         val screenHeight = metrics.heightPixels
-        val width = min(dp(430), (screenWidth * 0.92f).toInt())
-        val height = min(dp(300), (screenHeight * 0.38f).toInt())
+        expandedWidth = min(dp(430), (screenWidth * 0.92f).toInt())
+        expandedHeight = min(dp(300), (screenHeight * 0.38f).toInt())
+        collapsedWidth = min(dp(190), (screenWidth * 0.58f).toInt())
+        collapsedHeight = dp(42)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = roundedBackground(Color.argb(238, 18, 27, 48), dp(14).toFloat())
             elevation = dp(8).toFloat()
         }
-        val header = TextView(this).apply {
-            text = "自动任务助手 · 活动日志（可拖动）"
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.rgb(39, 135, 245))
+            setPadding(dp(10), 0, dp(6), 0)
+        }
+        titleView = TextView(this).apply {
+            text = "自动任务助手 · 活动日志"
             setTextColor(Color.WHITE)
             textSize = 13f
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), 0, dp(8), 0)
-            setBackgroundColor(Color.rgb(39, 135, 245))
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
+        header.addView(titleView, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
+        ))
+        foldButton = Button(this).apply {
+            text = "折叠"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            background = roundedBackground(Color.argb(70, 255, 255, 255), dp(8).toFloat())
+            setPadding(dp(6), 0, dp(6), 0)
+            setOnClickListener { toggleFold() }
+        }
+        header.addView(foldButton, LinearLayout.LayoutParams(dp(58), dp(30)))
         root.addView(header, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(38)
+            LinearLayout.LayoutParams.MATCH_PARENT, collapsedHeight
         ))
 
-        val body = LinearLayout(this).apply {
+        bodyContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
-        root.addView(body, LinearLayout.LayoutParams(
+        root.addView(bodyContainer, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
 
@@ -125,7 +168,7 @@ class FloatingLogService : Service() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
         }
-        body.addView(controls, LinearLayout.LayoutParams(dp(92), LinearLayout.LayoutParams.MATCH_PARENT))
+        bodyContainer.addView(controls, LinearLayout.LayoutParams(dp(92), LinearLayout.LayoutParams.MATCH_PARENT))
         controls.addView(actionButton("打开主页") {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -138,8 +181,16 @@ class FloatingLogService : Service() {
             refreshLogs()
             appendLog("日志已清空")
         })
-        controls.addView(actionButton("隐藏悬浮窗") {
-            overlayView?.visibility = View.GONE
+        controls.addView(actionButton("折叠窗口") {
+            setFolded(true)
+        })
+        controls.addView(actionButton("关闭窗口") {
+            getSharedPreferences("activation", MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_FLOATING_WINDOW_ENABLED, false)
+                .apply()
+            removeOverlay()
+            stopSelf()
         })
 
         logView = TextView(this).apply {
@@ -152,13 +203,13 @@ class FloatingLogService : Service() {
             background = roundedBackground(Color.argb(180, 7, 13, 27), dp(10).toFloat())
             addView(logView)
         }
-        body.addView(logScroll, LinearLayout.LayoutParams(
+        bodyContainer.addView(logScroll, LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
         ).apply { marginStart = dp(8) })
 
         val params = WindowManager.LayoutParams(
-            width,
-            height,
+            expandedWidth,
+            expandedHeight,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
@@ -170,7 +221,7 @@ class FloatingLogService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (screenWidth - width) / 2
+            x = (screenWidth - expandedWidth) / 2
             y = (screenHeight * 0.16f).toInt()
         }
 
@@ -178,11 +229,48 @@ class FloatingLogService : Service() {
         runCatching {
             windowManager.addView(root, params)
             overlayView = root
+            overlayParams = params
+            updateOverlayVisibility()
             appendLog("悬浮窗已启动")
         }.onFailure {
             overlayView = null
+            overlayParams = null
             stopSelf()
         }
+    }
+
+    private fun toggleFold() {
+        setFolded(expanded)
+    }
+
+    private fun setFolded(folded: Boolean) {
+        expanded = !folded
+        bodyContainer.visibility = if (expanded) View.VISIBLE else View.GONE
+        titleView.text = if (expanded) "自动任务助手 · 活动日志" else "活动日志"
+        foldButton.text = if (expanded) "折叠" else "展开"
+        overlayParams?.let { params ->
+            params.width = if (expanded) expandedWidth else collapsedWidth
+            params.height = if (expanded) expandedHeight else collapsedHeight
+            overlayView?.let { view ->
+                if (::windowManager.isInitialized) {
+                    runCatching { windowManager.updateViewLayout(view, params) }
+                }
+            }
+        }
+    }
+
+    private fun updateOverlayVisibility() {
+        overlayView?.visibility = if (appVisible) View.GONE else View.VISIBLE
+    }
+
+    private fun removeOverlay() {
+        overlayView?.let { view ->
+            if (::windowManager.isInitialized) {
+                runCatching { windowManager.removeView(view) }
+            }
+        }
+        overlayView = null
+        overlayParams = null
     }
 
     private fun actionButton(label: String, action: () -> Unit): Button =
@@ -216,7 +304,11 @@ class FloatingLogService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     params.x = startX + (event.rawX - touchX).toInt()
                     params.y = startY + (event.rawY - touchY).toInt()
-                    overlayView?.let { windowManager.updateViewLayout(it, params) }
+                    overlayView?.let {
+                        if (::windowManager.isInitialized) {
+                            runCatching { windowManager.updateViewLayout(it, params) }
+                        }
+                    }
                     true
                 }
                 else -> false
@@ -282,8 +374,12 @@ class FloatingLogService : Service() {
 
     companion object {
         const val ACTION_ACTIVITY_LOG = "com.autotask.permission.ACTIVITY_LOG"
+        const val ACTION_APP_VISIBILITY = "com.autotask.permission.APP_VISIBILITY"
         const val EXTRA_MESSAGE = "message"
+        const val EXTRA_APP_VISIBLE = "app_visible"
+        const val EXTRA_FLOATING_ENABLED = "floating_enabled"
         private const val CHANNEL_ID = "floating_log"
         private const val NOTIFICATION_ID = 1001
+        private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
     }
 }
