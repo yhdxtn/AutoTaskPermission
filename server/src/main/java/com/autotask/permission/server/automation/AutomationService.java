@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -27,6 +28,7 @@ import org.springframework.util.StringUtils;
 public class AutomationService {
 
     private static final int MAX_CONTROLS_PER_SNAPSHOT = 240;
+    private static final Set<String> HIDDEN_APP_PACKAGES = Set.of("com.autotask.permission");
 
     private final UiSnapshotRepository snapshotRepository;
     private final AutomationFlowRepository flowRepository;
@@ -50,6 +52,9 @@ public class AutomationService {
 
     @Transactional
     public SnapshotUploadResponse saveSnapshot(SnapshotUploadRequest request) {
+        if (HIDDEN_APP_PACKAGES.contains(trimToNull(request.packageName()))) {
+            return new SnapshotUploadResponse(null, 0, null);
+        }
         UiSnapshot snapshot = new UiSnapshot();
         snapshot.setPackageName(requiredTrim(request.packageName(), "应用包名不能为空"));
         snapshot.setAppName(trimToNull(request.appName()));
@@ -78,6 +83,9 @@ public class AutomationService {
         }
         List<AppSummaryResponse> responses = new ArrayList<>();
         for (UiSnapshot snapshot : latestByPackage.values()) {
+            if (HIDDEN_APP_PACKAGES.contains(snapshot.getPackageName())) {
+                continue;
+            }
             AutomationAppProfile profile = appProfileRepository.findById(snapshot.getPackageName()).orElse(null);
             responses.add(new AppSummaryResponse(
                 snapshot.getPackageName(),

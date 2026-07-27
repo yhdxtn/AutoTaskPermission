@@ -21,7 +21,7 @@ class AutomationAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
-        if (packageName != DOUYIN_PACKAGE && packageName != this.packageName) return
+        if (packageName != DOUYIN_PACKAGE) return
 
         val root = rootInActiveWindow ?: return
         val now = System.currentTimeMillis()
