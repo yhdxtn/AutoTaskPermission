@@ -567,6 +567,26 @@
     .control-picker-list .control-card {
       margin-bottom: 0;
     }
+    .dynamic-page-log {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid #d7e5f4;
+      border-radius: 8px;
+      background: #f8fbff;
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .dynamic-page-log strong {
+      color: var(--text);
+      font-size: 13px;
+    }
+    .dynamic-page-log span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .recognition-box {
       margin-top: 8px;
       padding: 10px;
@@ -910,6 +930,10 @@
                   <div class="toolbar">
                     <input v-model="controlKeyword" placeholder="搜索文字、描述、viewId">
                     <button class="teal" :disabled="!selectedControl" @click="addClickNode(selectedControl)">添加点击节点</button>
+                  </div>
+                  <div class="dynamic-page-log" v-if="currentDouyinPageInfo.length">
+                    <strong>当前页面动态信息（只用于查看，不写入流程控件名）</strong>
+                    <span v-for="item in currentDouyinPageInfo" :key="item.key">{{ item.label }}：{{ item.value }}</span>
                   </div>
                   <div class="control-picker" v-if="controlCategories.length">
                     <button class="control-picker-trigger" @click="controlPickerOpen = !controlPickerOpen">
@@ -1543,6 +1567,17 @@
         controls() {
           return this.snapshot?.controls || [];
         },
+        currentDouyinPageInfo() {
+          if (this.snapshot?.packageName !== 'com.ss.android.ugc.aweme') return [];
+          const byKey = new Map();
+          this.controls.forEach(control => {
+            const item = this.douyinDynamicInfo(control);
+            if (item && item.value && !byKey.has(item.key)) {
+              byKey.set(item.key, item);
+            }
+          });
+          return [...byKey.values()];
+        },
         drawableControls() {
           return this.controls.filter(control =>
             this.isUsefulControl(control) &&
@@ -1578,6 +1613,7 @@
           if (!keyword) return controls.slice(0, 80);
           return controls.filter(control => [
             this.semanticControlLabel(control),
+            this.douyinDynamicInfo(control)?.value,
             this.controlCategory(control),
             this.rawControlLabel(control),
             control.text,
@@ -2686,7 +2722,11 @@
           const label = this.controlLabel(control);
           const text = (control.text || '').trim();
           const desc = (control.contentDescription || '').trim();
-          if (this.snapshot?.packageName === 'com.ss.android.ugc.aweme' && (this.isDynamicMetricText(text) || this.isDynamicMetricText(desc))) return '';
+          if (this.snapshot?.packageName === 'com.ss.android.ugc.aweme' && (
+            this.isDynamicMetricText(text) ||
+            this.isDynamicMetricText(desc) ||
+            this.douyinDynamicInfo(control)
+          )) return '';
           if (text && text !== label && !label.endsWith(`：${text}`)) return `显示文字：${text}`;
           if (desc && desc !== label && desc !== text) return `描述：${desc}`;
           return '';
@@ -2727,9 +2767,9 @@
           const visibleText = text || desc;
 
           if (this.snapshot?.packageName === 'com.ss.android.ugc.aweme') {
-            if (visibleText && cy >= 0.13 && cy < 0.42) return `顶部热词：${visibleText}`;
-            if (visibleText && cy >= 0.42 && cy < 0.72 && cx < 0.78) return `视频区域文字：${visibleText}`;
-            if (visibleText && cy >= 0.72 && cx < 0.76) return `视频文案：${visibleText}`;
+            if (visibleText && cy >= 0.13 && cy < 0.42) return '顶部热词';
+            if (visibleText && cy >= 0.42 && cy < 0.72 && cx < 0.78) return '视频区域文字';
+            if (visibleText && cy >= 0.72 && cx < 0.76) return '视频信息（标题）';
             if (technical && cy >= 0.13 && cy < 0.92 && cx < 0.78) return '视频内容区域';
             if (technical && cx > 0.78) return '右侧操作区域';
           }
@@ -2799,13 +2839,15 @@
           const isEdit = cls.toLowerCase().includes('edittext');
           const isImage = cls.toLowerCase().includes('image');
           const isButtonLike = control.clickable || control.focusable || isImage || cls.toLowerCase().includes('button');
+          const dynamicInfo = this.douyinDynamicInfo(control);
 
           if (/评论\s*[\d,.万亿wWkK]+/.test(allText)) return '评论按钮';
           if (/(点赞|喜欢|未点赞)\s*[\d,.万亿wWkK]+/.test(allText)) return '点赞按钮';
           if (/收藏\s*[\d,.万亿wWkK]+/.test(allText)) return '收藏按钮';
           if (/(分享|转发)\s*[\d,.万亿wWkK]+/.test(allText)) return '转发按钮';
           if (isEdit) return '评论输入框';
-          if (/^@/.test(value)) return '作者名字';
+          if (dynamicInfo?.key === 'author') return '作者名字';
+          if (dynamicInfo?.key === 'videoTitle') return '视频信息（标题）';
           if (text.includes('共') && text.includes('条评论')) return '评论区标题';
           if (text.includes('说点什么') || text.includes('发条评论')) return '评论输入入口';
           if (text.includes('展开')) return '视频简介展开';
@@ -2840,7 +2882,9 @@
 
           if (cx > 0.78) {
             if (cy >= 0.43 && cy < 0.57) {
-              if (text === '+' || desc.includes('关注') || (isButtonLike && cy > 0.50)) return '关注按钮';
+              if (text === '+' || desc.includes('关注')) return '关注按钮';
+              if (isImage) return '作者头像';
+              if (isButtonLike && cy > 0.50) return '关注按钮';
               return '作者头像';
             }
             if (cy >= 0.57 && cy < 0.66) return numeric ? '点赞数量' : '点赞按钮';
@@ -2863,6 +2907,27 @@
           if (text.includes('关注')) return '主页关注数量';
 
           return '';
+        },
+        douyinDynamicInfo(control) {
+          if (this.snapshot?.packageName !== 'com.ss.android.ugc.aweme') return null;
+          const width = this.snapshotWidth();
+          const height = this.snapshotHeight();
+          const cx = ((control.left + control.right) / 2) / width;
+          const cy = ((control.top + control.bottom) / 2) / height;
+          const text = (control.text || '').trim();
+          const desc = (control.contentDescription || '').trim();
+          const cls = (control.className || '').toLowerCase();
+          const value = text || desc;
+          if (!value || this.isDynamicMetricText(value) || this.isTechnicalLabel(value)) return null;
+          if (['关注', '+', '推荐', '商城', '热点', '直播', '团购', '同城', '首页', '朋友', '消息', '我'].includes(value)) return null;
+          if (/^@/.test(value)) return { key: 'author', label: '作者名字', value };
+          if (cx > 0.78 && cy >= 0.43 && cy < 0.57 && cls.includes('image') && value.length <= 24) {
+            return { key: 'author', label: '作者名字', value };
+          }
+          if (cy >= 0.72 && cx < 0.76 && value.length >= 6) {
+            return { key: 'videoTitle', label: '视频信息（标题）', value: value.replace(/\s*展开\s*$/, '') };
+          }
+          return null;
         },
         isDynamicMetricText(value) {
           const text = String(value || '').trim();
