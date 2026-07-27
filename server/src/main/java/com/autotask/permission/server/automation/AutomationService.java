@@ -243,7 +243,7 @@ public class AutomationService {
             snapshot.getScreenWidth(),
             snapshot.getScreenHeight(),
             snapshot.getCapturedAt(),
-            snapshot.getControls().stream().map(this::toResponse).toList()
+            snapshot.getControls().stream().map(control -> toResponse(control, snapshot)).toList()
         );
     }
 
@@ -262,7 +262,9 @@ public class AutomationService {
         );
     }
 
-    private ControlResponse toResponse(UiControl control) {
+    private ControlResponse toResponse(UiControl control, UiSnapshot snapshot) {
+        int screenWidth = positiveOrFallback(snapshot.getScreenWidth(), control.getBoundsRight());
+        int screenHeight = positiveOrFallback(snapshot.getScreenHeight(), control.getBoundsBottom());
         return new ControlResponse(
             control.getId(),
             control.getControlKey(),
@@ -274,6 +276,12 @@ public class AutomationService {
             control.getBoundsTop(),
             control.getBoundsRight(),
             control.getBoundsBottom(),
+            ratio(control.getBoundsLeft(), screenWidth),
+            ratio(control.getBoundsTop(), screenHeight),
+            ratio(control.getBoundsRight(), screenWidth),
+            ratio(control.getBoundsBottom(), screenHeight),
+            centerRatio(control.getBoundsLeft(), control.getBoundsRight(), screenWidth),
+            centerRatio(control.getBoundsTop(), control.getBoundsBottom(), screenHeight),
             control.getDepth(),
             control.isClickable(),
             control.isEnabled(),
@@ -325,6 +333,30 @@ public class AutomationService {
         } catch (JsonProcessingException ex) {
             return objectMapper.createArrayNode();
         }
+    }
+
+    private int positiveOrFallback(Integer value, Integer fallback) {
+        if (value != null && value > 0) {
+            return value;
+        }
+        if (fallback != null && fallback > 0) {
+            return fallback;
+        }
+        return 1;
+    }
+
+    private Double ratio(Integer value, int base) {
+        if (value == null || base <= 0) {
+            return null;
+        }
+        return Math.round((value.doubleValue() / base) * 10000d) / 10000d;
+    }
+
+    private Double centerRatio(Integer start, Integer end, int base) {
+        if (start == null || end == null || base <= 0) {
+            return null;
+        }
+        return Math.round((((start + end) / 2d) / base) * 10000d) / 10000d;
     }
 
     private String requiredTrim(String value, String message) {
