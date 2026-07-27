@@ -1,14 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">自动任务助手</string>
-    <string name="home_title">权限准备</string>
-    <string name="home_subtitle">开启后返回本页，状态会自动刷新。</string>
-    <string name="overlay_permission_title">悬浮窗权限</string>
-    <string name="accessibility_permission_title">无障碍权限</string>
-    <string name="permission_granted">已开启</string>
-    <string name="permission_not_granted">未开启 · 点击前往设置</string>
+    <string name="app_logo">自动任务助手 Logo</string>
+    <string name="overlay_permission_title">悬浮窗</string>
+    <string name="accessibility_permission_title">无障碍</string>
+    <string name="promotion_section">推广专区</string>
+    <string name="volcano_section">火山版</string>
+    <string name="tools_section">实用工具</string>
+    <string name="ttk_section">TTK 国际版</string>
+    <string name="redbook_section">小红书</string>
+    <string name="wx_section">微信视频号</string>
+    <string name="kuaishou_section">快手</string>
+    <string name="runtime_data">运行数据</string>
+    <string name="operation_knowledge">运营知识</string>
+    <string name="operation_rules">1. 内容创作\n\n保持原创内容，避免搬运、虚假宣传、侵权素材和违规引流。\n\n2. 账号操作\n\n控制点赞、评论、关注等操作频率，模拟真实用户行为。\n\n3. 直播规范\n\n不传播违规信息，不在直播间使用二维码等方式做站外引流。</string>
+    <string name="profile_details">激活码：已绑定当前设备\n\n有效期：以后台配置为准\n\n语言：简体中文\n\n主题：浅色\n\n版本号：v1.0.0</string>
+    <string name="feature_clicked">已选择：%1$s</string>
     <string name="settings_unavailable">当前设备无法打开对应设置页面</string>
-    <string name="version_note">v1.0.0 仅负责获取和展示权限状态，不执行自动点击、控件查找或坐标手势。</string>
     <string name="accessibility_service_name">自动任务助手服务</string>
-    <string name="accessibility_service_description">用于后续由用户主动配置的自动化任务。v1.0.0 不读取界面内容，也不执行点击。</string>
+    <string name="accessibility_service_description">用于执行由用户主动配置的辅助自动化任务。</string>
 </resources>

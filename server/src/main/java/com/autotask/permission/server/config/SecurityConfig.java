@@ -1,0 +1,40 @@
+package com.autotask.permission.server.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/", "/admin/login.html", "/api/activation/**", "/api/device/**").permitAll()
+                .requestMatchers("/admin/**", "/api/admin/**").authenticated()
+                .anyRequest().denyAll()
+            )
+            .formLogin(form -> form
+                .loginPage("/admin/login.html")
+                .loginProcessingUrl("/admin/login")
+                .defaultSuccessUrl("/admin/index.html", true)
+                .permitAll()
+            )
+            .logout(logout -> logout
+                .logoutUrl("/admin/logout")
+                .logoutSuccessUrl("/admin/login.html")
+                .permitAll()
+            );
+        return http.build();
+    }
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}

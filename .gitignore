@@ -11,3 +11,5 @@
 .externalNativeBuild
 .cxx
 app/build
+server/build
+work

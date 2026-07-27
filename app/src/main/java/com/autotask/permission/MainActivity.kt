@@ -1,67 +1,409 @@
 package com.autotask.permission
 
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.annotation.TargetApi
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.net.Uri
-import android.annotation.TargetApi
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.text.TextUtils
+import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.accessibility.AccessibilityManager
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
 
     private lateinit var rootContainer: LinearLayout
-    private lateinit var overlayRow: View
-    private lateinit var accessibilityRow: View
     private lateinit var overlaySwitch: Switch
     private lateinit var accessibilitySwitch: Switch
-    private lateinit var overlayStatus: TextView
-    private lateinit var accessibilityStatus: TextView
+    private lateinit var homePage: ScrollView
+    private lateinit var discoverPage: ScrollView
+    private lateinit var profilePage: ScrollView
+    private lateinit var navHome: TextView
+    private lateinit var navDiscover: TextView
+    private lateinit var navProfile: TextView
+
+    private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val activationClient = ActivationClient(BuildConfig.ACTIVATION_API_BASE_URL)
+    private val activationPrefs by lazy { getSharedPreferences("activation", MODE_PRIVATE) }
+    private var updatingSwitches = false
+    private var activationReady = false
+    private var activationDialog: AlertDialog? = null
+
+    private val promotionItems = listOf(
+        FeatureItem("基础观看", "B"), FeatureItem("垂直观看", "V"),
+        FeatureItem("点赞浏览", "L"), FeatureItem("普通浏览", "P"),
+        FeatureItem("智能浏览", "AI"), FeatureItem("智能宣传", "S"),
+        FeatureItem("评论浏览", "C"), FeatureItem("喜欢浏览", "H"),
+        FeatureItem("直播浏览", "LIVE"), FeatureItem("行业搜索", "Q"),
+        FeatureItem("同城宣传", "T"), FeatureItem("万能推广", "M"),
+        FeatureItem("粉丝浏览", "F"), FeatureItem("智能推广", "AI"),
+        FeatureItem("直播宣传", "Z")
+    )
+    private val volcanoItems = listOf(
+        FeatureItem("基础观看", "B"), FeatureItem("粉丝观看", "F"),
+        FeatureItem("智能浏览", "AI")
+    )
+    private val toolItems = listOf(
+        FeatureItem("直播氛围", "L"), FeatureItem("清理关注", "X"),
+        FeatureItem("AI录制", "AI"), FeatureItem("取消喜欢", "U"),
+        FeatureItem("用户回关", "R"), FeatureItem("用户回访", "V")
+    )
+    private val ttkItems = listOf(
+        FeatureItem("普通观看", "P"), FeatureItem("垂直观看", "V"),
+        FeatureItem("精准宣传", "J"), FeatureItem("榜单私信", "M")
+    )
+    private val redBookItems = listOf(FeatureItem("万能观看", "B"))
+    private val wxItems = listOf(
+        FeatureItem("视频浏览", "V"), FeatureItem("同城宣传", "T"),
+        FeatureItem("基础观看", "B")
+    )
+    private val kuaishouItems = listOf(
+        FeatureItem("行业推广", "P"), FeatureItem("评论浏览", "C"),
+        FeatureItem("粉丝浏览", "F")
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        rootContainer = findViewById(R.id.rootContainer)
-        overlayRow = findViewById(R.id.overlayRow)
-        accessibilityRow = findViewById(R.id.accessibilityRow)
-        overlaySwitch = findViewById(R.id.overlaySwitch)
-        accessibilitySwitch = findViewById(R.id.accessibilitySwitch)
-        overlayStatus = findViewById(R.id.overlayStatus)
-        accessibilityStatus = findViewById(R.id.accessibilityStatus)
-
+        bindViews()
+        rootContainer.visibility = View.INVISIBLE
         applySystemBarInsets()
+        buildHomeSections()
+        buildProfileActions()
+        setupPermissions()
+        setupNavigation()
 
-        // 开关仅展示当前权限状态；点击整行进入对应系统设置页面。
-        overlaySwitch.isClickable = false
-        overlaySwitch.isFocusable = false
-        accessibilitySwitch.isClickable = false
-        accessibilitySwitch.isFocusable = false
-
-        overlayRow.setOnClickListener { openOverlayPermissionSettings() }
-        accessibilityRow.setOnClickListener { openAccessibilitySettings() }
-
-        updatePermissionStates()
+        findViewById<TextView>(R.id.deviceInfo).text =
+            "设备：${Build.MANUFACTURER}\n型号：${Build.MODEL}"
+        checkActivation()
     }
 
     override fun onResume() {
         super.onResume()
+        if (activationReady) {
+            updatePermissionStates()
+            updateFloatingLogService()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        executor.shutdownNow()
+    }
+
+    private fun bindViews() {
+        rootContainer = findViewById(R.id.rootContainer)
+        overlaySwitch = findViewById(R.id.overlaySwitch)
+        accessibilitySwitch = findViewById(R.id.accessibilitySwitch)
+        homePage = findViewById(R.id.homePage)
+        discoverPage = findViewById(R.id.discoverPage)
+        profilePage = findViewById(R.id.profilePage)
+        navHome = findViewById(R.id.navHome)
+        navDiscover = findViewById(R.id.navDiscover)
+        navProfile = findViewById(R.id.navProfile)
+    }
+
+    private fun checkActivation() {
+        val savedCode = activationPrefs.getString(KEY_ACTIVATION_CODE, null)
+        if (savedCode.isNullOrBlank()) {
+            showActivationDialog()
+            return
+        }
+        verifyActivation(savedCode, bindIfNeeded = false)
+    }
+
+    private fun showActivationDialog(message: String? = null) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(8), dp(4), 0)
+        }
+        val messageView = TextView(this).apply {
+            text = message ?: "请输入后台生成的激活码"
+            setTextColor(if (message == null) getColor(R.color.text_secondary) else Color.rgb(190, 45, 45))
+            textSize = 14f
+            setPadding(0, 0, 0, dp(10))
+        }
+        val codeInput = EditText(this).apply {
+            hint = "激活码"
+            setSingleLine(true)
+            setText(activationPrefs.getString(KEY_ACTIVATION_CODE, null).orEmpty())
+        }
+        val progress = ProgressBar(this).apply {
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(dp(32), dp(32)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(14)
+            }
+        }
+        content.addView(messageView)
+        content.addView(codeInput)
+        content.addView(progress)
+
+        activationDialog?.dismiss()
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("软件激活")
+            .setView(content)
+            .setCancelable(false)
+            .setPositiveButton("激活", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val code = codeInput.text.toString().trim()
+                if (code.isBlank()) {
+                    messageView.text = "请输入激活码"
+                    messageView.setTextColor(Color.rgb(190, 45, 45))
+                    return@setOnClickListener
+                }
+                progress.visibility = View.VISIBLE
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                messageView.text = "正在连接后台验证..."
+                messageView.setTextColor(getColor(R.color.text_secondary))
+                verifyActivation(code, bindIfNeeded = true) { success, error ->
+                    progress.visibility = View.GONE
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    if (success) {
+                        dialog.dismiss()
+                    } else {
+                        messageView.text = error ?: "激活失败"
+                        messageView.setTextColor(Color.rgb(190, 45, 45))
+                    }
+                }
+            }
+        }
+        activationDialog = dialog
+        dialog.show()
+    }
+
+    private fun verifyActivation(
+        code: String,
+        bindIfNeeded: Boolean,
+        callback: ((Boolean, String?) -> Unit)? = null
+    ) {
+        executor.execute {
+            val deviceId = DeviceIdProvider.deviceId(this)
+            val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+            val result = runCatching {
+                if (bindIfNeeded) {
+                    activationClient.activate(code, deviceId, deviceName)
+                } else {
+                    activationClient.verify(code, deviceId, deviceName)
+                }
+            }
+            mainHandler.post {
+                val response = result.getOrNull()
+                if (response?.success == true) {
+                    activationPrefs.edit().putString(KEY_ACTIVATION_CODE, response.code ?: code).apply()
+                    enterApplication()
+                    callback?.invoke(true, null)
+                } else {
+                    if (!bindIfNeeded) {
+                        activationPrefs.edit().remove(KEY_ACTIVATION_CODE).apply()
+                    }
+                    val error = response?.message
+                        ?: result.exceptionOrNull()?.message
+                        ?: "无法连接后台，请检查网络或后台地址"
+                    if (callback == null) {
+                        showActivationDialog(error)
+                    } else {
+                        callback.invoke(false, error)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun enterApplication() {
+        activationReady = true
+        rootContainer.visibility = View.VISIBLE
         updatePermissionStates()
+        updateFloatingLogService()
+    }
+
+    private fun buildHomeSections() {
+        val container = findViewById<LinearLayout>(R.id.homeSections)
+        addSection(container, getString(R.string.promotion_section), promotionItems)
+        addSection(container, getString(R.string.volcano_section), volcanoItems)
+        addSection(container, getString(R.string.tools_section), toolItems)
+        addSection(container, getString(R.string.ttk_section), ttkItems)
+        addSection(container, getString(R.string.redbook_section), redBookItems)
+        addSection(container, getString(R.string.wx_section), wxItems)
+        addSection(container, getString(R.string.kuaishou_section), kuaishouItems)
+    }
+
+    private fun addSection(parent: LinearLayout, title: String, items: List<FeatureItem>) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = getDrawable(R.drawable.bg_section_card)
+            setPadding(dp(14), dp(14), dp(14), dp(12))
+        }
+        card.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(14) }
+        card.addView(TextView(this).apply {
+            text = title
+            textSize = 18f
+            setTextColor(getColor(R.color.section_title))
+            setPadding(0, 0, 0, dp(10))
+        })
+        card.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
+            )
+            setBackgroundColor(getColor(R.color.card_border))
+        })
+        val grid = GridLayout(this).apply {
+            columnCount = 3
+            alignmentMode = GridLayout.ALIGN_MARGINS
+            clipChildren = false
+            clipToPadding = false
+            setPadding(0, dp(8), 0, 0)
+        }
+        populateGrid(grid, items)
+        card.addView(grid)
+        parent.addView(card)
+    }
+
+    private fun populateGrid(grid: GridLayout, items: List<FeatureItem>) {
+        items.forEach { item ->
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                background = getDrawable(R.drawable.bg_feature_ripple)
+                setPadding(dp(4), dp(8), dp(4), dp(10))
+                contentDescription = item.label
+                setOnClickListener {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.feature_clicked, item.label),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            cell.layoutParams = GridLayout.LayoutParams().apply {
+                width = 0
+                height = dp(112)
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            }
+            cell.addView(TextView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+                background = getDrawable(R.drawable.bg_feature_icon)
+                gravity = Gravity.CENTER
+                text = item.symbol
+                setTextColor(Color.WHITE)
+                textSize = if (item.symbol.length > 2) 13f else 22f
+                typeface = Typeface.DEFAULT_BOLD
+            })
+            cell.addView(TextView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+                text = item.label
+                setTextColor(getColor(R.color.text_primary))
+                textSize = 13.5f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            grid.addView(cell)
+        }
+    }
+
+    private fun buildProfileActions() {
+        val actions = listOf(
+            FeatureItem("下载管理", "D"),
+            FeatureItem("更新日志", "U"),
+            FeatureItem("退出系统", "E")
+        )
+        populateGrid(findViewById(R.id.profileActions), actions)
+    }
+
+    private fun setupPermissions() {
+        findViewById<View>(R.id.overlayRow).setOnClickListener {
+            openOverlayPermissionSettings()
+        }
+        findViewById<View>(R.id.accessibilityRow).setOnClickListener {
+            openAccessibilitySettings()
+        }
+        overlaySwitch.setOnCheckedChangeListener { _, checked ->
+            if (!updatingSwitches && checked != Settings.canDrawOverlays(this)) {
+                openOverlayPermissionSettings()
+            }
+        }
+        accessibilitySwitch.setOnCheckedChangeListener { _, checked ->
+            if (!updatingSwitches && checked != isAccessibilityServiceEnabled()) {
+                openAccessibilitySettings()
+            }
+        }
+    }
+
+    private fun setupNavigation() {
+        navHome.setOnClickListener { showPage(Page.HOME) }
+        navDiscover.setOnClickListener { showPage(Page.DISCOVER) }
+        navProfile.setOnClickListener { showPage(Page.PROFILE) }
+    }
+
+    private fun showPage(page: Page) {
+        homePage.visibility = if (page == Page.HOME) View.VISIBLE else View.GONE
+        discoverPage.visibility = if (page == Page.DISCOVER) View.VISIBLE else View.GONE
+        profilePage.visibility = if (page == Page.PROFILE) View.VISIBLE else View.GONE
+        navHome.setTextColor(getColor(if (page == Page.HOME) R.color.brand else R.color.text_secondary))
+        navDiscover.setTextColor(getColor(if (page == Page.DISCOVER) R.color.brand else R.color.text_secondary))
+        navProfile.setTextColor(getColor(if (page == Page.PROFILE) R.color.brand else R.color.text_secondary))
+    }
+
+    private fun updatePermissionStates() {
+        updatingSwitches = true
+        overlaySwitch.isChecked = Settings.canDrawOverlays(this)
+        accessibilitySwitch.isChecked = isAccessibilityServiceEnabled()
+        updatingSwitches = false
+    }
+
+    private fun updateFloatingLogService() {
+        val serviceIntent = Intent(this, FloatingLogService::class.java)
+        if (Settings.canDrawOverlays(this)) {
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+            }.onFailure {
+                Toast.makeText(this, "悬浮日志启动失败，请检查悬浮窗和通知权限", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            runCatching { stopService(serviceIntent) }
+        }
     }
 
     private fun applySystemBarInsets() {
-        // Android 11+ 使用新版 Insets API；旧系统保持 XML 中的安全边距。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             applySystemBarInsetsApi30()
         }
@@ -69,80 +411,72 @@ class MainActivity : Activity() {
 
     @TargetApi(Build.VERSION_CODES.R)
     private fun applySystemBarInsetsApi30() {
-        val initialLeft = rootContainer.paddingLeft
-        val initialTop = rootContainer.paddingTop
-        val initialRight = rootContainer.paddingRight
-        val initialBottom = rootContainer.paddingBottom
-
+        val padding = intArrayOf(
+            rootContainer.paddingLeft, rootContainer.paddingTop,
+            rootContainer.paddingRight, rootContainer.paddingBottom
+        )
         rootContainer.setOnApplyWindowInsetsListener { view, insets ->
-            val systemBars = insets.getInsets(
+            val bars = insets.getInsets(
                 WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars()
             )
             view.setPadding(
-                initialLeft + systemBars.left,
-                initialTop + systemBars.top,
-                initialRight + systemBars.right,
-                initialBottom + systemBars.bottom
+                padding[0] + bars.left, padding[1] + bars.top,
+                padding[2] + bars.right, padding[3] + bars.bottom
             )
             insets
         }
     }
 
-    private fun updatePermissionStates() {
-        val overlayGranted = Settings.canDrawOverlays(this)
-        val accessibilityGranted = isAccessibilityServiceEnabled()
-
-        renderState(overlaySwitch, overlayStatus, overlayGranted)
-        renderState(accessibilitySwitch, accessibilityStatus, accessibilityGranted)
-    }
-
-    private fun renderState(permissionSwitch: Switch, statusView: TextView, granted: Boolean) {
-        permissionSwitch.isChecked = granted
-        statusView.setText(if (granted) R.string.permission_granted else R.string.permission_not_granted)
-        statusView.setTextColor(
-            if (granted) Color.rgb(25, 135, 84) else Color.rgb(112, 117, 122)
-        )
-    }
-
     private fun openOverlayPermissionSettings() {
-        val appSpecificIntent = Intent(
+        val intent = Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:$packageName")
         )
+        startSettings(intent, Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+    }
 
+    private fun openAccessibilitySettings() {
+        startSettings(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), null)
+    }
+
+    private fun startSettings(primary: Intent, fallbackAction: String?) {
         try {
-            startActivity(appSpecificIntent)
+            startActivity(primary)
         } catch (_: ActivityNotFoundException) {
+            if (fallbackAction == null) {
+                showSettingsUnavailableMessage()
+                return
+            }
             try {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                startActivity(Intent(fallbackAction))
             } catch (_: ActivityNotFoundException) {
                 showSettingsUnavailableMessage()
             }
         }
     }
 
-    private fun openAccessibilitySettings() {
-        try {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        } catch (_: ActivityNotFoundException) {
-            showSettingsUnavailableMessage()
-        }
-    }
-
     private fun isAccessibilityServiceEnabled(): Boolean {
-        val accessibilityManager =
-            getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
-        val expectedComponent = ComponentName(this, AutomationAccessibilityService::class.java)
-
-        return accessibilityManager
+        val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val expected = ComponentName(this, AutomationAccessibilityService::class.java)
+        return manager
             .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-            .any { service ->
-                val serviceInfo = service.resolveInfo.serviceInfo
-                ComponentName(serviceInfo.packageName, serviceInfo.name) == expectedComponent
+            .any {
+                val service = it.resolveInfo.serviceInfo
+                ComponentName(service.packageName, service.name) == expected
             }
     }
 
     private fun showSettingsUnavailableMessage() {
         Toast.makeText(this, R.string.settings_unavailable, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private data class FeatureItem(val label: String, val symbol: String)
+    private enum class Page { HOME, DISCOVER, PROFILE }
+
+    companion object {
+        private const val KEY_ACTIVATION_CODE = "activation_code"
     }
 }

@@ -1,45 +1,88 @@
-# 自动任务助手 v1.0.0
+# 自动任务助手
 
-一个原生 Android 权限准备页。首页只有两个权限入口：
+这是一个 Android 客户端 + Spring Boot 后台项目。客户端启动前需要输入激活码；激活码首次使用时会绑定当前设备，卸载重装后只要在同一台设备重新输入同一个激活码，仍然可以继续使用。
 
-- 悬浮窗权限：跳转到系统“显示在其他应用上层”设置。
-- 无障碍权限：跳转到系统无障碍服务设置。
+## 模块
 
-返回 App 后会在 `onResume()` 中重新检查权限，并更新两个开关的状态。
+- `app`：Android 客户端。
+- `server`：Spring Boot + MySQL 激活码后台。
 
-## v1.0.0 范围
+## 后台地址
 
-本版本 **不执行** 自动点击、控件查找、坐标点击、手势或后台任务。`AutomationAccessibilityService` 只是空服务占位，便于用户在系统设置中看到并授权。
+本地启动后：
 
-## 工程信息
+- 管理后台：`http://127.0.0.1:8080/admin/index.html`
+- 激活接口：`http://127.0.0.1:8080/api/activation/activate`
+- 验证接口：`http://127.0.0.1:8080/api/activation/verify`
 
-- 包名：`com.autotask.permission`
-- 最低 Android：6.0（API 23）
-- 编译 SDK：35
-- 目标 SDK：35
-- Android Gradle Plugin：9.3.0
-- Gradle：9.5.0
-- 无第三方运行时依赖
+默认后台账号：
 
-## 打开和运行
+- 用户名：`admin`
+- 密码：`admin123`
 
-1. 使用支持 AGP 9.3 的 Android Studio 打开工程根目录。
-2. 首次同步时安装 Android SDK 35。
-3. 工程提供 `gradlew` / `gradlew.bat` 轻量启动脚本。首次同步会从 Gradle 官方地址下载 Gradle 9.5.0，并校验 SHA-256。
-4. 安装 JDK 17、Android SDK 35 与 Android SDK Build Tools 36.0.0。
-5. 连接 Android 6.0 及以上设备，运行 `app`。
+生产环境请通过环境变量修改：
 
-> 说明：当前交付环境无法直接附带标准二进制 `gradle-wrapper.jar`，因此启动脚本采用等效的“下载、校验、解压、执行”流程。也可以在本机执行 `gradle wrapper --gradle-version 9.5.0` 换成标准 Gradle Wrapper。
+```powershell
+$env:ADMIN_USERNAME="你的账号"
+$env:ADMIN_PASSWORD="你的强密码"
+```
 
-## 后续版本建议
+## MySQL
 
-后续实现自动化时，建议按以下优先级：
+先创建数据库：
 
-1. 根据控件文本、资源 ID、描述等定位 `AccessibilityNodeInfo` 并执行 `ACTION_CLICK`。
-2. 控件不可点击时向上查找可点击父节点。
-3. 找不到控件时，再使用按屏幕宽高比例换算后的坐标手势作为兜底。
-4. 所有任务由用户明确创建和启动，并提供立即停止入口、目标应用白名单和执行日志。
+```sql
+CREATE DATABASE autotask_permission
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
+```
 
-## 发布提醒
+默认连接配置在 `server/src/main/resources/application.yml`：
 
-无障碍服务属于高敏感能力。发布到应用商店前，需要提供清晰的应用内说明、数据使用披露，并遵守平台关于 AccessibilityService API 的政策。
+```yaml
+MYSQL_URL=jdbc:mysql://127.0.0.1:3306/autotask_permission
+MYSQL_USERNAME=root
+MYSQL_PASSWORD=root
+```
+
+也可以用环境变量覆盖：
+
+```powershell
+$env:MYSQL_URL="jdbc:mysql://127.0.0.1:3306/autotask_permission?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+$env:MYSQL_USERNAME="root"
+$env:MYSQL_PASSWORD="你的密码"
+```
+
+## 启动后台
+
+```powershell
+.\gradlew.bat :server:bootRun
+```
+
+打开 `http://127.0.0.1:8080/admin/index.html` 后，可以新增、批量生成、禁用、启用、解绑、删除激活码。
+
+## Android 激活地址
+
+Android 默认后台地址在 `app/build.gradle.kts`：
+
+```kotlin
+buildConfigField("String", "ACTIVATION_API_BASE_URL", "\"http://10.0.2.2:8080\"")
+```
+
+- Android 模拟器访问电脑本机后台：保持 `http://10.0.2.2:8080`。
+- 真机访问电脑后台：改成电脑局域网 IP，例如 `http://192.168.1.10:8080`。
+- 上线服务器：建议改成 HTTPS 域名，例如 `https://api.example.com`。
+
+## 构建
+
+```powershell
+.\gradlew.bat :server:compileJava
+.\gradlew.bat :app:assembleDebug
+```
+
+当前项目使用：
+
+- Gradle 9.5.0
+- Android Gradle Plugin 9.3.0
+- compileSdk 35
+- Java 21 运行 Spring Boot 后台

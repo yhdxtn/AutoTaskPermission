@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "AutoTaskPermission"
 include(":app")
+include(":server")
