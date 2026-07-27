@@ -871,14 +871,17 @@
                 <h3>页面识别</h3>
                 <div class="toolbar">
                   <input v-model="pagePatternName" placeholder="页面名：如首页、评论区、个人主页">
+                  <input type="number" min="0" max="100" step="1" v-model.number="pagePatternProbability" title="识别到该页面后，本页动作触发概率">
+                  <input type="number" min="1" max="20" step="1" v-model.number="pagePatternMinHits" title="OCR关键词最少命中数量">
                   <button class="primary" @click="savePagePattern">记录当前页面</button>
                 </div>
                 <textarea v-model="pagePatternDescription" placeholder="这个页面用来判断流程到了哪里，比如：视频首页、评论区弹层、作者主页"></textarea>
+                <textarea v-model="pagePatternOcrText" placeholder="OCR关键词，一行一个或用逗号分隔。比如：首页、推荐、关注、评论、说点什么、发私信"></textarea>
                 <div class="recognition-list" v-if="pagePatterns.length">
                   <div class="recognition-item" v-for="pattern in pagePatterns" :key="pattern.id">
                     <div>
                       <strong>{{ pattern.name }}</strong>
-                      <div class="muted">{{ pattern.description || '已记录页面特征' }} · {{ (pattern.requiredControls || []).length }} 个关键控件</div>
+                      <div class="muted">{{ pattern.description || '已记录页面特征' }} · {{ (pattern.requiredControls || []).length }} 个关键控件 · OCR {{ (pattern.ocrKeywords || []).length }} 个 · 概率 {{ pattern.triggerProbability ?? 100 }}%</div>
                     </div>
                     <button class="small danger" @click="deletePagePattern(pattern)">删除</button>
                   </div>
@@ -1124,7 +1127,15 @@
                 </div>
                 <div class="field" v-if="activeNode.type === 'recognizePage'">
                   <label>页面特征</label>
-                  <textarea readonly :value="activeNode.pageName ? `${activeNode.pageName}：${(activeNode.requiredControls || []).map(item => item.label).join('、')}` : '先在左侧记录当前页面，再选择页面模板。'"></textarea>
+                  <textarea readonly :value="recognizePageSummary(activeNode)"></textarea>
+                </div>
+                <div class="field" v-if="activeNode.type === 'recognizePage'">
+                  <label>页面触发概率（%）</label>
+                  <input type="number" min="0" max="100" step="1" v-model.number="activeNode.triggerProbability">
+                </div>
+                <div class="field" v-if="activeNode.type === 'recognizePage'">
+                  <label>OCR最少命中关键词数</label>
+                  <input type="number" min="1" max="20" step="1" v-model.number="activeNode.minKeywordHits">
                 </div>
                 <div class="field" v-if="activeNode.type === 'recognizePage'">
                   <label>识别超时时间秒数</label>
@@ -1233,6 +1244,7 @@
                 <div v-if="node.controlText">{{ node.controlText }}</div>
                 <div v-if="node.type === 'condition'">最多识别 {{ node.detectTimeoutSeconds || 3 }} 秒</div>
                 <div v-if="node.type === 'recognizePage'">识别：{{ node.pageName || '未选择页面' }}</div>
+                <div v-if="node.type === 'recognizePage'">OCR命中 {{ node.minKeywordHits || 1 }} 个，概率 {{ node.triggerProbability ?? 100 }}%</div>
                 <div v-if="node.type === 'recognizePage'">最多识别 {{ node.detectTimeoutSeconds || 3 }} 秒</div>
                 <div v-if="node.type === 'tap'">坐标 {{ node.xPoint || 0 }}{{ node.coordinateMode === 'percent' ? '%' : '' }}, {{ node.yPoint || 0 }}{{ node.coordinateMode === 'percent' ? '%' : '' }}</div>
                 <div v-if="node.type === 'swipe'">{{ swipeNodeSummary(node) }}</div>
@@ -1392,6 +1404,9 @@
           pagePatterns: [],
           pagePatternName: '',
           pagePatternDescription: '',
+          pagePatternOcrText: '',
+          pagePatternProbability: 100,
+          pagePatternMinHits: 1,
           flows: [],
           selectedFlowId: '',
           flowName: '新流程',
@@ -1746,7 +1761,8 @@
           const name = this.pagePatternName.trim();
           if (!name) return this.notify('请填写页面名称，例如：首页、评论区、个人主页');
           const requiredControls = this.buildRecognitionControls();
-          if (requiredControls.length === 0) return this.notify('当前页面没有可用于识别的关键控件');
+          const ocrKeywords = this.parseOcrKeywords(this.pagePatternOcrText);
+          if (requiredControls.length === 0 && ocrKeywords.length === 0) return this.notify('请至少填写 OCR 关键词或选择关键控件');
           await this.request('/api/admin/automation/page-patterns', {
             method: 'POST',
             body: JSON.stringify({
@@ -1755,13 +1771,26 @@
               description: this.pagePatternDescription || null,
               snapshotId: this.snapshot.id,
               activityName: this.snapshot.activityName || this.snapshot.windowTitle || null,
-              requiredControls
+              requiredControls,
+              ocrKeywords,
+              triggerProbability: this.normalizedProbability(this.pagePatternProbability),
+              minKeywordHits: Math.max(1, Number(this.pagePatternMinHits || 1))
             })
           });
           this.pagePatternName = '';
           this.pagePatternDescription = '';
+          this.pagePatternOcrText = '';
+          this.pagePatternProbability = 100;
+          this.pagePatternMinHits = 1;
           await this.loadPagePatterns();
           this.notify('页面识别模板已记录');
+        },
+        parseOcrKeywords(value) {
+          return [...new Set(String(value || '')
+            .split(/[\n,，、;；\s]+/)
+            .map(item => item.trim())
+            .filter(item => item.length > 0)
+            .slice(0, 30))];
         },
         async deletePagePattern(pattern) {
           if (!confirm(`确定删除页面识别模板“${pattern.name}”？`)) return;
@@ -1773,6 +1802,9 @@
           if (!pattern) return;
           node.pageName = pattern.name;
           node.requiredControls = Array.isArray(pattern.requiredControls) ? JSON.parse(JSON.stringify(pattern.requiredControls)) : [];
+          node.ocrKeywords = Array.isArray(pattern.ocrKeywords) ? JSON.parse(JSON.stringify(pattern.ocrKeywords)) : [];
+          node.triggerProbability = pattern.triggerProbability ?? 100;
+          node.minKeywordHits = pattern.minKeywordHits || 1;
           node.label = `识别${pattern.name}`.slice(0, 20);
         },
         resetFlow() {
@@ -2001,6 +2033,9 @@
             pagePatternId: pattern ? String(pattern.id) : '',
             pageName: pattern?.name || '',
             requiredControls: Array.isArray(pattern?.requiredControls) ? JSON.parse(JSON.stringify(pattern.requiredControls)) : [],
+            ocrKeywords: Array.isArray(pattern?.ocrKeywords) ? JSON.parse(JSON.stringify(pattern.ocrKeywords)) : [],
+            triggerProbability: pattern?.triggerProbability ?? 100,
+            minKeywordHits: pattern?.minKeywordHits || 1,
             detectTimeoutSeconds: 3,
             pollSeconds: 0.5,
             repeatCount: 1,
@@ -2269,6 +2304,18 @@
           const interval = Number(node.intervalSeconds || 0);
           if (count <= 1 && probability >= 100 && interval <= 0) return '';
           return `循环 ${count} 次，继续概率 ${probability}%，间隔 ${interval} 秒`;
+        },
+        recognizePageSummary(node) {
+          if (!node?.pageName) return '先在左侧记录当前页面，再选择页面模板。';
+          const controls = (node.requiredControls || []).map(item => item.label).filter(Boolean);
+          const keywords = node.ocrKeywords || [];
+          return [
+            `${node.pageName}`,
+            controls.length ? `关键控件：${controls.join('、')}` : '',
+            keywords.length ? `OCR关键词：${keywords.join('、')}` : '',
+            `最少命中：${node.minKeywordHits || 1}`,
+            `触发概率：${node.triggerProbability ?? 100}%`
+          ].filter(Boolean).join('\n');
         },
         inputNodeSummary(node) {
           if (node.textSource === 'clipboard') return '输入剪贴板内容';

@@ -203,6 +203,9 @@ public class AutomationService {
         pattern.setSnapshotId(request.snapshotId());
         pattern.setActivityName(trimToNull(request.activityName()));
         pattern.setRequiredControlsJson(writeJson(request.requiredControls()));
+        pattern.setOcrKeywordsJson(writeJson(request.ocrKeywords()));
+        pattern.setTriggerProbability(normalizedPercent(request.triggerProbability()));
+        pattern.setMinKeywordHits(normalizedMinHits(request.minKeywordHits()));
         return toResponse(pagePatternRepository.save(pattern));
     }
 
@@ -321,6 +324,9 @@ public class AutomationService {
             pattern.getSnapshotId(),
             pattern.getActivityName(),
             readJson(pattern.getRequiredControlsJson()),
+            readJson(pattern.getOcrKeywordsJson()),
+            normalizedPercent(pattern.getTriggerProbability()),
+            normalizedMinHits(pattern.getMinKeywordHits()),
             pattern.getCreatedAt(),
             pattern.getUpdatedAt()
         );
@@ -365,6 +371,20 @@ public class AutomationService {
             return null;
         }
         return Math.round((((start + end) / 2d) / base) * 10000d) / 10000d;
+    }
+
+    private int normalizedPercent(Integer value) {
+        if (value == null) {
+            return 100;
+        }
+        return Math.max(0, Math.min(100, value));
+    }
+
+    private int normalizedMinHits(Integer value) {
+        if (value == null) {
+            return 1;
+        }
+        return Math.max(1, value);
     }
 
     private String requiredTrim(String value, String message) {

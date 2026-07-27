@@ -150,7 +150,10 @@ public final class AutomationDtos {
         String description,
         Long snapshotId,
         String activityName,
-        JsonNode requiredControls
+        JsonNode requiredControls,
+        JsonNode ocrKeywords,
+        Integer triggerProbability,
+        Integer minKeywordHits
     ) {
     }
 
@@ -162,6 +165,9 @@ public final class AutomationDtos {
         Long snapshotId,
         String activityName,
         JsonNode requiredControls,
+        JsonNode ocrKeywords,
+        Integer triggerProbability,
+        Integer minKeywordHits,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
     ) {

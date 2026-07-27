@@ -44,6 +44,16 @@ public class AutomationPagePattern {
     @Column(name = "required_controls_json", columnDefinition = "LONGTEXT")
     private String requiredControlsJson;
 
+    @Lob
+    @Column(name = "ocr_keywords_json", columnDefinition = "LONGTEXT")
+    private String ocrKeywordsJson;
+
+    @Column(name = "trigger_probability")
+    private Integer triggerProbability;
+
+    @Column(name = "min_keyword_hits")
+    private Integer minKeywordHits;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -112,6 +122,30 @@ public class AutomationPagePattern {
 
     public void setRequiredControlsJson(String requiredControlsJson) {
         this.requiredControlsJson = requiredControlsJson;
+    }
+
+    public String getOcrKeywordsJson() {
+        return ocrKeywordsJson;
+    }
+
+    public void setOcrKeywordsJson(String ocrKeywordsJson) {
+        this.ocrKeywordsJson = ocrKeywordsJson;
+    }
+
+    public Integer getTriggerProbability() {
+        return triggerProbability;
+    }
+
+    public void setTriggerProbability(Integer triggerProbability) {
+        this.triggerProbability = triggerProbability;
+    }
+
+    public Integer getMinKeywordHits() {
+        return minKeywordHits;
+    }
+
+    public void setMinKeywordHits(Integer minKeywordHits) {
+        this.minKeywordHits = minKeywordHits;
     }
 
     public LocalDateTime getCreatedAt() {
