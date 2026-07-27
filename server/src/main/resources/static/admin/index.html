@@ -251,10 +251,39 @@
     }
     .feature-detail {
       padding: 14px;
+      align-self: start;
+      position: sticky;
+      top: 10px;
+      max-height: calc(100vh - 84px);
+      overflow: auto;
+    }
+    .feature-detail-head {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+    .feature-detail-head .feature-icon {
+      margin-top: 2px;
     }
     .feature-detail h2 {
       margin: 0 0 6px;
       font-size: 18px;
+    }
+    .feature-actions {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 10px 0;
+      margin: 10px 0 8px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    .feature-actions button {
+      width: 100%;
     }
     .checklist {
       display: grid;
@@ -740,6 +769,7 @@
       .nav { display: flex; }
       .metric-grid, .module-grid { grid-template-columns: 1fr; }
       .feature-workspace { grid-template-columns: 1fr; }
+      .feature-detail { position: static; max-height: none; }
       .feature-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       .grid { grid-template-columns: 1fr; height: auto; overflow: visible; }
       .pane { min-height: 420px; }
@@ -1343,9 +1373,17 @@
             </div>
           </section>
           <section class="panel feature-detail" v-if="selectedFeature">
-            <div class="feature-icon">{{ selectedFeature.icon }}</div>
-            <h2>{{ selectedFeature.label }}</h2>
-            <p class="muted">{{ selectedFeature.description }}</p>
+            <div class="feature-detail-head">
+              <div class="feature-icon">{{ selectedFeature.icon }}</div>
+              <div>
+                <h2>{{ selectedFeature.label }}</h2>
+                <p class="muted">{{ selectedFeature.description }}</p>
+              </div>
+            </div>
+            <div class="feature-actions">
+              <button class="primary" @click="editSelectedFeature">进入画布编辑</button>
+              <button @click="selectDyApp">选择 DY 控件库</button>
+            </div>
             <div class="checklist">
               <div
                 v-for="item in featureChecklist(selectedFeature)"
@@ -1359,10 +1397,6 @@
                   <div class="muted">{{ item.tip }}</div>
                 </div>
               </div>
-            </div>
-            <div class="toolbar">
-              <button class="primary" @click="editSelectedFeature">进入画布编辑</button>
-              <button @click="selectDyApp">选择 DY 控件库</button>
             </div>
           </section>
         </div>
