@@ -253,6 +253,7 @@ class AutomationAccessibilityService : AccessibilityService() {
                 "next"
             }
             "swipe" -> {
+                runLocalBeforeSwipeIfNeeded()
                 swipe(
                     pointX(node, "startX"),
                     pointY(node, "startY"),
@@ -260,6 +261,7 @@ class AutomationAccessibilityService : AccessibilityService() {
                     pointY(node, "endY"),
                     node.long("durationMs", 450L)
                 )
+                runLocalAfterSwipeIfNeeded()
                 "next"
             }
             "input" -> {
@@ -326,6 +328,120 @@ class AutomationAccessibilityService : AccessibilityService() {
         return Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_LAUNCHER)
             .setClassName(activity.activityInfo.packageName, activity.activityInfo.name)
+    }
+
+    private fun runLocalBeforeSwipeIfNeeded() {
+        if (!activationPrefs.getBoolean(KEY_LOCAL_LOGIC_ENABLED, false)) return
+        val seconds = randomPrefSeconds(KEY_LOCAL_BEFORE_SWIPE_MIN, KEY_LOCAL_BEFORE_SWIPE_MAX, 2.0, 18.0)
+        if (seconds > 0) {
+            sendFloatingLog("本机滑动前停顿：${formatSeconds(seconds)} 秒")
+            sendRunnerStatus("等待中", "本机滑动前 ${formatSeconds(seconds)} 秒")
+            sleepSeconds(seconds)
+        }
+    }
+
+    private fun runLocalAfterSwipeIfNeeded() {
+        if (!activationPrefs.getBoolean(KEY_LOCAL_LOGIC_ENABLED, false)) return
+        val seconds = randomPrefSeconds(KEY_LOCAL_AFTER_SWIPE_MIN, KEY_LOCAL_AFTER_SWIPE_MAX, 1.0, 3.0)
+        if (seconds > 0) {
+            sendFloatingLog("本机滑动后停顿：${formatSeconds(seconds)} 秒")
+            sendRunnerStatus("等待中", "本机滑动后 ${formatSeconds(seconds)} 秒")
+            sleepSeconds(seconds)
+        }
+        val target = activationPrefs.getString(KEY_LOCAL_CLICK_TARGET, "none").orEmpty()
+        val probability = activationPrefs.getInt(KEY_LOCAL_CLICK_PROBABILITY, 0).coerceIn(0, 100)
+        if (target == "none" || probability <= 0) return
+        if (probability < 100 && Random.nextInt(100) >= probability) {
+            sendFloatingLog("本机补充点击未触发：${localTargetName(target)} $probability%")
+            return
+        }
+        val clicked = clickLocalTarget(target)
+        sendFloatingLog("本机补充点击：${localTargetName(target)} ${if (clicked) "成功" else "未找到"}")
+        sendRunnerStatus("运行中", "本机点击 ${localTargetName(target)}")
+    }
+
+    private fun randomPrefSeconds(minKey: String, maxKey: String, defaultMin: Double, defaultMax: Double): Double {
+        val min = activationPrefs.getFloat(minKey, defaultMin.toFloat()).toDouble().coerceAtLeast(0.0)
+        val max = activationPrefs.getFloat(maxKey, defaultMax.toFloat()).toDouble().coerceAtLeast(min)
+        return randomSeconds(min, max)
+    }
+
+    private fun clickLocalTarget(target: String): Boolean {
+        val root = rootInActiveWindow
+        val node = findLocalTargetNode(root, target)
+        if (node != null) {
+            val clickable = node.clickableParent()
+            if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        }
+        val point = localFallbackPoint(target) ?: return false
+        tap(point.first, point.second)
+        return true
+    }
+
+    private fun findLocalTargetNode(root: AccessibilityNodeInfo?, target: String): AccessibilityNodeInfo? {
+        if (root == null) return null
+        val keywords = when (target) {
+            "like" -> listOf("点赞", "未点赞", "喜欢")
+            "comment" -> listOf("评论")
+            "favorite" -> listOf("收藏")
+            "share" -> listOf("转发", "分享")
+            "follow" -> listOf("关注")
+            else -> emptyList()
+        }
+        if (keywords.isEmpty()) return null
+        val nodes = mutableListOf<AccessibilityNodeInfo>()
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.add(root)
+        val screenWidth = resources.displayMetrics.widthPixels
+        while (stack.isNotEmpty()) {
+            val node = stack.removeFirst()
+            if (node.isVisibleToUser) {
+                val text = node.text?.toString().orEmpty()
+                val desc = node.contentDescription?.toString().orEmpty()
+                val hasKeyword = keywords.any { text.contains(it) || desc.contains(it) }
+                if (hasKeyword) nodes.add(node)
+            }
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let(stack::add)
+            }
+        }
+        return nodes.sortedWith(compareByDescending<AccessibilityNodeInfo> {
+            if (Rect().also(it::getBoundsInScreen).centerX() > screenWidth * 0.70) 1 else 0
+        }.thenBy {
+            val bounds = Rect()
+            it.getBoundsInScreen(bounds)
+            when (target) {
+                "follow" -> kotlin.math.abs(bounds.centerY() - resources.displayMetrics.heightPixels * 0.52).roundToInt()
+                "like" -> kotlin.math.abs(bounds.centerY() - resources.displayMetrics.heightPixels * 0.60).roundToInt()
+                "comment" -> kotlin.math.abs(bounds.centerY() - resources.displayMetrics.heightPixels * 0.68).roundToInt()
+                "favorite" -> kotlin.math.abs(bounds.centerY() - resources.displayMetrics.heightPixels * 0.77).roundToInt()
+                "share" -> kotlin.math.abs(bounds.centerY() - resources.displayMetrics.heightPixels * 0.86).roundToInt()
+                else -> 0
+            }
+        }).firstOrNull()
+    }
+
+    private fun localFallbackPoint(target: String): Pair<Int, Int>? {
+        val width = resources.displayMetrics.widthPixels
+        val height = resources.displayMetrics.heightPixels
+        val yRatio = when (target) {
+            "follow" -> 0.52
+            "like" -> 0.60
+            "comment" -> 0.68
+            "favorite" -> 0.77
+            "share" -> 0.86
+            else -> return null
+        }
+        return Pair((width * 0.92).roundToInt(), (height * yRatio).roundToInt())
+    }
+
+    private fun localTargetName(target: String): String = when (target) {
+        "like" -> "点赞按钮"
+        "comment" -> "评论按钮"
+        "favorite" -> "收藏按钮"
+        "share" -> "转发按钮"
+        "follow" -> "关注按钮"
+        else -> "不点击"
     }
 
     private fun clickTarget(node: FlowNode): Boolean {
@@ -897,6 +1013,13 @@ class AutomationAccessibilityService : AccessibilityService() {
         private const val KEY_SELECTED_FEATURE = "selected_feature"
         private const val KEY_FEATURE_RUNNING = "feature_running"
         private const val KEY_APP_LOOP_REPEAT = "app_loop_repeat"
+        private const val KEY_LOCAL_LOGIC_ENABLED = "local_logic_enabled"
+        private const val KEY_LOCAL_BEFORE_SWIPE_MIN = "local_before_swipe_min"
+        private const val KEY_LOCAL_BEFORE_SWIPE_MAX = "local_before_swipe_max"
+        private const val KEY_LOCAL_AFTER_SWIPE_MIN = "local_after_swipe_min"
+        private const val KEY_LOCAL_AFTER_SWIPE_MAX = "local_after_swipe_max"
+        private const val KEY_LOCAL_CLICK_TARGET = "local_click_target"
+        private const val KEY_LOCAL_CLICK_PROBABILITY = "local_click_probability"
         private const val MAX_FLOW_STEPS = 220
         const val ACTION_RUNNER_COMMAND = "com.autotask.permission.RUNNER_COMMAND"
         const val EXTRA_RUNNER_COMMAND = "runner_command"

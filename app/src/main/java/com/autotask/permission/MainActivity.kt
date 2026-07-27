@@ -21,12 +21,15 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.accessibility.AccessibilityManager
+import android.widget.ArrayAdapter
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -388,13 +391,54 @@ class MainActivity : Activity() {
             ).apply { topMargin = dp(10) }
         }
         content.addView(loopRepeatInput)
+        val localLogicSwitch = CheckBox(this).apply {
+            text = "启用本机补充逻辑（滑动前后停顿、滑动后按概率点控件）"
+            textSize = 13f
+            setTextColor(getColor(R.color.text_primary))
+            isChecked = activationPrefs.getBoolean(KEY_LOCAL_LOGIC_ENABLED, false)
+            setPadding(0, dp(10), 0, 0)
+        }
+        content.addView(localLogicSwitch)
+
+        val beforeMinInput = numberInput("滑动前随机最少秒", activationPrefs.getFloat(KEY_LOCAL_BEFORE_SWIPE_MIN, 2f))
+        val beforeMaxInput = numberInput("滑动前随机最多秒", activationPrefs.getFloat(KEY_LOCAL_BEFORE_SWIPE_MAX, 18f))
+        content.addView(twoColumnRow(beforeMinInput, beforeMaxInput))
+
+        val afterMinInput = numberInput("滑动后最少秒", activationPrefs.getFloat(KEY_LOCAL_AFTER_SWIPE_MIN, 1f))
+        val afterMaxInput = numberInput("滑动后最多秒", activationPrefs.getFloat(KEY_LOCAL_AFTER_SWIPE_MAX, 3f))
+        content.addView(twoColumnRow(afterMinInput, afterMaxInput))
+
+        val clickProbabilityInput = numberInput("点击概率 0-100", activationPrefs.getInt(KEY_LOCAL_CLICK_PROBABILITY, 0).toFloat())
+        val targetSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                LOCAL_CLICK_TARGETS.map { it.label }
+            )
+            setSelection(LOCAL_CLICK_TARGETS.indexOfFirst {
+                it.key == activationPrefs.getString(KEY_LOCAL_CLICK_TARGET, "none")
+            }.takeIf { it >= 0 } ?: 0)
+        }
+        content.addView(twoColumnRow(clickProbabilityInput, targetSpinner))
+        val scrollContent = ScrollView(this).apply {
+            addView(content)
+        }
 
         val dialog = AlertDialog.Builder(this)
             .setTitle(item.label)
-            .setView(content)
+            .setView(scrollContent)
             .setPositiveButton("开始") { _, _ ->
                 val loopRepeat = loopRepeatInput.text.toString().toIntOrNull()?.coerceIn(1, 999)
                     ?: activationPrefs.getInt(KEY_APP_LOOP_REPEAT, 3)
+                saveLocalLogicSettings(
+                    localLogicSwitch.isChecked,
+                    beforeMinInput.numberValue(2.0).toFloat(),
+                    beforeMaxInput.numberValue(18.0).toFloat(),
+                    afterMinInput.numberValue(1.0).toFloat(),
+                    afterMaxInput.numberValue(3.0).toFloat(),
+                    LOCAL_CLICK_TARGETS.getOrNull(targetSpinner.selectedItemPosition)?.key ?: "none",
+                    clickProbabilityInput.numberValue(0.0).toInt().coerceIn(0, 100)
+                )
                 startFeature(item.label, loopRepeat)
             }
             .setNegativeButton("暂停") { _, _ -> pauseFeature(item.label) }
@@ -435,6 +479,57 @@ class MainActivity : Activity() {
         sendRunnerCommand(ACTION_PAUSE_FEATURE, featureName)
         Toast.makeText(this, "已暂停：$featureName", Toast.LENGTH_SHORT).show()
     }
+
+    private fun saveLocalLogicSettings(
+        enabled: Boolean,
+        beforeMin: Float,
+        beforeMax: Float,
+        afterMin: Float,
+        afterMax: Float,
+        clickTarget: String,
+        clickProbability: Int
+    ) {
+        val safeBeforeMin = beforeMin.coerceAtLeast(0f)
+        val safeBeforeMax = beforeMax.coerceAtLeast(safeBeforeMin)
+        val safeAfterMin = afterMin.coerceAtLeast(0f)
+        val safeAfterMax = afterMax.coerceAtLeast(safeAfterMin)
+        activationPrefs.edit()
+            .putBoolean(KEY_LOCAL_LOGIC_ENABLED, enabled)
+            .putFloat(KEY_LOCAL_BEFORE_SWIPE_MIN, safeBeforeMin)
+            .putFloat(KEY_LOCAL_BEFORE_SWIPE_MAX, safeBeforeMax)
+            .putFloat(KEY_LOCAL_AFTER_SWIPE_MIN, safeAfterMin)
+            .putFloat(KEY_LOCAL_AFTER_SWIPE_MAX, safeAfterMax)
+            .putString(KEY_LOCAL_CLICK_TARGET, clickTarget)
+            .putInt(KEY_LOCAL_CLICK_PROBABILITY, clickProbability.coerceIn(0, 100))
+            .apply()
+        val targetText = LOCAL_CLICK_TARGETS.firstOrNull { it.key == clickTarget }?.label ?: "不点击"
+        sendFloatingLog(
+            "本机逻辑：${if (enabled) "已启用" else "已关闭"}，滑动前 ${safeBeforeMin}-${safeBeforeMax} 秒，滑动后 ${safeAfterMin}-${safeAfterMax} 秒，${targetText} ${clickProbability.coerceIn(0, 100)}%"
+        )
+    }
+
+    private fun numberInput(hintText: String, value: Float): EditText =
+        EditText(this).apply {
+            hint = hintText
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setSingleLine(true)
+            setText(if (value % 1f == 0f) value.toInt().toString() else value.toString())
+        }
+
+    private fun twoColumnRow(left: View, right: View): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(8), 0, 0)
+            addView(left, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                rightMargin = dp(6)
+            })
+            addView(right, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(6)
+            })
+        }
+
+    private fun EditText.numberValue(fallback: Double): Double =
+        text.toString().trim().toDoubleOrNull() ?: fallback
 
     private fun updateTaskStatus() {
         if (!::taskStatusText.isInitialized) return
@@ -658,14 +753,30 @@ class MainActivity : Activity() {
         (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private data class FeatureItem(val label: String, val symbol: String)
+    private data class LocalClickTarget(val key: String, val label: String)
     private enum class Page { HOME, DISCOVER, PROFILE }
 
     companion object {
+        private val LOCAL_CLICK_TARGETS = listOf(
+            LocalClickTarget("none", "滑动后不点击"),
+            LocalClickTarget("like", "点赞按钮"),
+            LocalClickTarget("comment", "评论按钮"),
+            LocalClickTarget("favorite", "收藏按钮"),
+            LocalClickTarget("share", "转发按钮"),
+            LocalClickTarget("follow", "关注按钮")
+        )
         private const val KEY_ACTIVATION_CODE = "activation_code"
         private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
         private const val KEY_SELECTED_FEATURE = "selected_feature"
         private const val KEY_FEATURE_RUNNING = "feature_running"
         private const val KEY_APP_LOOP_REPEAT = "app_loop_repeat"
+        private const val KEY_LOCAL_LOGIC_ENABLED = "local_logic_enabled"
+        private const val KEY_LOCAL_BEFORE_SWIPE_MIN = "local_before_swipe_min"
+        private const val KEY_LOCAL_BEFORE_SWIPE_MAX = "local_before_swipe_max"
+        private const val KEY_LOCAL_AFTER_SWIPE_MIN = "local_after_swipe_min"
+        private const val KEY_LOCAL_AFTER_SWIPE_MAX = "local_after_swipe_max"
+        private const val KEY_LOCAL_CLICK_TARGET = "local_click_target"
+        private const val KEY_LOCAL_CLICK_PROBABILITY = "local_click_probability"
         private const val ACTION_START_FEATURE = "start"
         private const val ACTION_PAUSE_FEATURE = "pause"
     }
