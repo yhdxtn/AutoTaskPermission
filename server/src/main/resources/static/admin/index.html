@@ -123,6 +123,12 @@
       padding: 12px 14px;
       overflow: hidden;
     }
+    .automation-workspace {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: calc(100vh - 88px);
+    }
     .toolbar {
       display: flex;
       align-items: center;
@@ -375,6 +381,10 @@
       gap: 10px;
       height: clamp(420px, 44vh, 620px);
       min-height: 0;
+    }
+    .automation-workspace .grid {
+      height: var(--top-panel-height, 420px);
+      flex: 0 0 var(--top-panel-height, 420px);
     }
     .grid.controls-only {
       grid-template-columns: 360px minmax(680px, 1fr);
@@ -765,6 +775,32 @@
       height: clamp(300px, calc(100vh - 590px), 500px);
       margin-top: 10px;
     }
+    .automation-workspace .flow-canvas-pane {
+      height: auto;
+      flex: 1 1 320px;
+      margin-top: 0;
+    }
+    .layout-resizer {
+      flex: 0 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: row-resize;
+      user-select: none;
+      touch-action: none;
+    }
+    .layout-resizer::before {
+      content: "";
+      width: 132px;
+      height: 4px;
+      border-radius: 999px;
+      background: #c7d7e8;
+      box-shadow: 0 1px 0 rgba(255,255,255,.8);
+    }
+    .layout-resizer:hover::before,
+    .layout-resizer.dragging::before {
+      background: var(--brand);
+    }
     .toast {
       position: fixed;
       right: 18px;
@@ -793,6 +829,9 @@
       .feature-detail { position: static; max-height: none; }
       .feature-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       .grid { grid-template-columns: 1fr; height: auto; overflow: visible; }
+      .automation-workspace { height: auto; overflow: auto; }
+      .automation-workspace .grid { height: auto; flex: 0 0 auto; }
+      .layout-resizer { display: none; }
       .pane { min-height: 420px; }
       .control-workbench { grid-template-columns: 1fr; }
       .phone-column { justify-items: center; }
@@ -863,7 +902,11 @@
         </section>
       </main>
 
-      <main class="workspace" v-if="tab === 'automation' || tab === 'controls'">
+      <main
+        :class="['workspace', {'automation-workspace': tab === 'automation'}]"
+        :style="tab === 'automation' ? {'--top-panel-height': topPanelHeight + 'px'} : null"
+        v-if="tab === 'automation' || tab === 'controls'"
+      >
         <div class="feature-context" v-if="tab === 'automation' && selectedFeature">
           <div>
             <strong>正在编辑：{{ selectedFeature.label }}</strong>
@@ -1237,6 +1280,14 @@
           </section>
         </div>
 
+        <div
+          class="layout-resizer"
+          :class="{dragging: resizeState}"
+          v-if="tab === 'automation'"
+          title="拖动调整上方控件区和下方画布高度"
+          @pointerdown="startLayoutResize"
+        ></div>
+
         <section class="pane flow-canvas-pane" v-if="tab === 'automation'">
           <header>
             <strong>流程图画布</strong>
@@ -1540,6 +1591,8 @@
           loopIntervalSeconds: 1,
           dragState: null,
           panState: null,
+          resizeState: null,
+          topPanelHeight: 420,
           codes: [],
           codeKeyword: '',
           newCode: '',
@@ -1684,6 +1737,7 @@
         }
       },
       mounted() {
+        this.restorePanelHeight();
         this.loadAccount();
         this.loadApps();
         this.loadCodes();
@@ -1694,6 +1748,8 @@
         window.removeEventListener('pointermove', this.onDrag);
         window.removeEventListener('pointerup', this.endDrag);
         window.removeEventListener('pointermove', this.onCanvasPan);
+        window.removeEventListener('pointermove', this.onLayoutResize);
+        window.removeEventListener('pointerup', this.endLayoutResize);
       },
       methods: {
         async request(path, options = {}) {
@@ -2760,6 +2816,39 @@
         endCanvasPan() {
           this.panState = null;
           window.removeEventListener('pointermove', this.onCanvasPan);
+        },
+        restorePanelHeight() {
+          const saved = Number(localStorage.getItem('automationTopPanelHeight') || 0);
+          if (saved > 0) this.topPanelHeight = this.clampTopPanelHeight(saved);
+        },
+        clampTopPanelHeight(value) {
+          const viewport = window.innerHeight || 900;
+          const min = 280;
+          const max = Math.max(min, viewport - 320);
+          return Math.max(min, Math.min(max, Math.round(Number(value || this.topPanelHeight))));
+        },
+        startLayoutResize(event) {
+          if (event.button != null && event.button !== 0) return;
+          event.preventDefault();
+          this.resizeState = {
+            startY: event.clientY,
+            startHeight: this.topPanelHeight
+          };
+          event.currentTarget?.setPointerCapture?.(event.pointerId);
+          window.addEventListener('pointermove', this.onLayoutResize);
+          window.addEventListener('pointerup', this.endLayoutResize, { once: true });
+        },
+        onLayoutResize(event) {
+          if (!this.resizeState) return;
+          const next = this.resizeState.startHeight + event.clientY - this.resizeState.startY;
+          this.topPanelHeight = this.clampTopPanelHeight(next);
+        },
+        endLayoutResize() {
+          if (this.resizeState) {
+            localStorage.setItem('automationTopPanelHeight', String(this.topPanelHeight));
+          }
+          this.resizeState = null;
+          window.removeEventListener('pointermove', this.onLayoutResize);
         },
         autoLayout() {
           this.graphNodes.forEach((node, index) => {
