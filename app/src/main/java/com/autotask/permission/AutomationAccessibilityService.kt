@@ -1,7 +1,6 @@
 package com.autotask.permission
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
@@ -37,12 +36,10 @@ class AutomationAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        sendActivityLog("无障碍服务已暂停")
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        sendActivityLog("无障碍服务已连接，开始采集当前 App 控件")
     }
 
     override fun onDestroy() {
@@ -126,12 +123,6 @@ class AutomationAccessibilityService : AccessibilityService() {
                 connection.inputStreamOrError().close()
                 connection.disconnect()
                 statusCode
-            }.onSuccess { statusCode ->
-                if (statusCode in 200..299) {
-                    sendActivityLog("已采集 ${appLabel(packageName)}：${controls.size} 个控件")
-                }
-            }.onFailure { error ->
-                sendActivityLog("控件上传失败：${error.message ?: "网络异常"}")
             }
         }
     }
@@ -219,14 +210,6 @@ class AutomationAccessibilityService : AccessibilityService() {
 
     private fun String.limit(maxLength: Int): String =
         if (length <= maxLength) this else take(maxLength)
-
-    private fun sendActivityLog(message: String) {
-        sendBroadcast(
-            Intent(FloatingLogService.ACTION_ACTIVITY_LOG)
-                .setPackage(packageName)
-                .putExtra(FloatingLogService.EXTRA_MESSAGE, message)
-        )
-    }
 
     private data class ControlCapture(
         val key: String,
