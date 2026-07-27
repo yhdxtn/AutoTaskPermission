@@ -6,6 +6,8 @@ import com.autotask.permission.server.automation.dto.AutomationDtos.ControlRespo
 import com.autotask.permission.server.automation.dto.AutomationDtos.ControlUploadRequest;
 import com.autotask.permission.server.automation.dto.AutomationDtos.FlowRequest;
 import com.autotask.permission.server.automation.dto.AutomationDtos.FlowResponse;
+import com.autotask.permission.server.automation.dto.AutomationDtos.PagePatternRequest;
+import com.autotask.permission.server.automation.dto.AutomationDtos.PagePatternResponse;
 import com.autotask.permission.server.automation.dto.AutomationDtos.SnapshotResponse;
 import com.autotask.permission.server.automation.dto.AutomationDtos.SnapshotSummaryResponse;
 import com.autotask.permission.server.automation.dto.AutomationDtos.SnapshotUploadRequest;
@@ -29,17 +31,20 @@ public class AutomationService {
     private final UiSnapshotRepository snapshotRepository;
     private final AutomationFlowRepository flowRepository;
     private final AutomationAppProfileRepository appProfileRepository;
+    private final AutomationPagePatternRepository pagePatternRepository;
     private final ObjectMapper objectMapper;
 
     public AutomationService(
         UiSnapshotRepository snapshotRepository,
         AutomationFlowRepository flowRepository,
         AutomationAppProfileRepository appProfileRepository,
+        AutomationPagePatternRepository pagePatternRepository,
         ObjectMapper objectMapper
     ) {
         this.snapshotRepository = snapshotRepository;
         this.flowRepository = flowRepository;
         this.appProfileRepository = appProfileRepository;
+        this.pagePatternRepository = pagePatternRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -173,6 +178,31 @@ public class AutomationService {
         flowRepository.deleteById(id);
     }
 
+    @Transactional(readOnly = true)
+    public List<PagePatternResponse> listPagePatterns(String packageName) {
+        return pagePatternRepository.findByPackageNameOrderByUpdatedAtDesc(packageName)
+            .stream()
+            .map(this::toResponse)
+            .toList();
+    }
+
+    @Transactional
+    public PagePatternResponse createPagePattern(PagePatternRequest request) {
+        AutomationPagePattern pattern = new AutomationPagePattern();
+        pattern.setPackageName(requiredTrim(request.packageName(), "应用包名不能为空"));
+        pattern.setName(requiredTrim(request.name(), "页面名称不能为空"));
+        pattern.setDescription(trimToNull(request.description()));
+        pattern.setSnapshotId(request.snapshotId());
+        pattern.setActivityName(trimToNull(request.activityName()));
+        pattern.setRequiredControlsJson(writeJson(request.requiredControls()));
+        return toResponse(pagePatternRepository.save(pattern));
+    }
+
+    @Transactional
+    public void deletePagePattern(Long id) {
+        pagePatternRepository.deleteById(id);
+    }
+
     private UiControl toEntity(ControlUploadRequest request, int index) {
         UiControl control = new UiControl();
         control.setControlKey(StringUtils.hasText(request.key()) ? request.key().trim() : "node-" + index);
@@ -263,6 +293,20 @@ public class AutomationService {
             readJson(flow.getEdgesJson()),
             flow.getCreatedAt(),
             flow.getUpdatedAt()
+        );
+    }
+
+    private PagePatternResponse toResponse(AutomationPagePattern pattern) {
+        return new PagePatternResponse(
+            pattern.getId(),
+            pattern.getPackageName(),
+            pattern.getName(),
+            pattern.getDescription(),
+            pattern.getSnapshotId(),
+            pattern.getActivityName(),
+            readJson(pattern.getRequiredControlsJson()),
+            pattern.getCreatedAt(),
+            pattern.getUpdatedAt()
         );
     }
 

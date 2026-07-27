@@ -137,4 +137,27 @@ public final class AutomationDtos {
         LocalDateTime updatedAt
     ) {
     }
+
+    public record PagePatternRequest(
+        @NotBlank String packageName,
+        @NotBlank String name,
+        String description,
+        Long snapshotId,
+        String activityName,
+        JsonNode requiredControls
+    ) {
+    }
+
+    public record PagePatternResponse(
+        Long id,
+        String packageName,
+        String name,
+        String description,
+        Long snapshotId,
+        String activityName,
+        JsonNode requiredControls,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt
+    ) {
+    }
 }

@@ -4,6 +4,8 @@ import com.autotask.permission.server.automation.dto.AutomationDtos.AppSummaryRe
 import com.autotask.permission.server.automation.dto.AutomationDtos.AppRemarkRequest;
 import com.autotask.permission.server.automation.dto.AutomationDtos.FlowRequest;
 import com.autotask.permission.server.automation.dto.AutomationDtos.FlowResponse;
+import com.autotask.permission.server.automation.dto.AutomationDtos.PagePatternRequest;
+import com.autotask.permission.server.automation.dto.AutomationDtos.PagePatternResponse;
 import com.autotask.permission.server.automation.dto.AutomationDtos.SnapshotResponse;
 import com.autotask.permission.server.automation.dto.AutomationDtos.SnapshotSummaryResponse;
 import jakarta.validation.Valid;
@@ -73,6 +75,22 @@ public class AdminAutomationController {
     @DeleteMapping("/flows/{id}")
     ResponseEntity<Void> deleteFlow(@PathVariable Long id) {
         service.deleteFlow(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/page-patterns")
+    List<PagePatternResponse> pagePatterns(@RequestParam String packageName) {
+        return service.listPagePatterns(packageName);
+    }
+
+    @PostMapping("/page-patterns")
+    PagePatternResponse createPagePattern(@Valid @RequestBody PagePatternRequest request) {
+        return service.createPagePattern(request);
+    }
+
+    @DeleteMapping("/page-patterns/{id}")
+    ResponseEntity<Void> deletePagePattern(@PathVariable Long id) {
+        service.deletePagePattern(id);
         return ResponseEntity.noContent().build();
     }
 

@@ -399,6 +399,37 @@
     .control-picker-list .control-card {
       margin-bottom: 0;
     }
+    .recognition-box {
+      margin-top: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdff;
+    }
+    .recognition-box h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+    .recognition-list {
+      display: grid;
+      gap: 7px;
+      margin-top: 8px;
+    }
+    .recognition-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+    }
+    .recognition-item strong {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 13px;
+    }
     .control-summary {
       display: flex;
       gap: 8px;
@@ -698,6 +729,23 @@
                 <input v-model="controlKeyword" placeholder="搜索文字、描述、viewId">
                 <button class="teal" :disabled="!selectedControl" @click="addClickNode(selectedControl)">添加点击节点</button>
               </div>
+              <div class="recognition-box" v-if="snapshot">
+                <h3>页面识别</h3>
+                <div class="toolbar">
+                  <input v-model="pagePatternName" placeholder="页面名：如首页、评论区、个人主页">
+                  <button class="primary" @click="savePagePattern">记录当前页面</button>
+                </div>
+                <textarea v-model="pagePatternDescription" placeholder="这个页面用来判断流程到了哪里，比如：视频首页、评论区弹层、作者主页"></textarea>
+                <div class="recognition-list" v-if="pagePatterns.length">
+                  <div class="recognition-item" v-for="pattern in pagePatterns" :key="pattern.id">
+                    <div>
+                      <strong>{{ pattern.name }}</strong>
+                      <div class="muted">{{ pattern.description || '已记录页面特征' }} · {{ (pattern.requiredControls || []).length }} 个关键控件</div>
+                    </div>
+                    <button class="small danger" @click="deletePagePattern(pattern)">删除</button>
+                  </div>
+                </div>
+              </div>
               <div class="control-picker" v-if="controlCategories.length">
                 <button class="control-picker-trigger" @click="controlPickerOpen = !controlPickerOpen">
                   <strong>{{ currentControlCategory.name }} {{ currentControlCategory.count }}</strong>
@@ -754,6 +802,7 @@
               <button class="small" @click="addSwipeNode">滑动</button>
               <button class="small" @click="addInputNode">输入</button>
               <button class="small" @click="addConditionNode">条件</button>
+              <button class="small" @click="addRecognizePageNode">识别页面</button>
               <button class="small" @click="addLoopNode">循环</button>
               <button class="small" @click="addWaitNode">等待</button>
             </div>
@@ -799,6 +848,7 @@
                     <option value="swipe">滑动</option>
                     <option value="input">输入文本</option>
                     <option value="condition">条件判断</option>
+                    <option value="recognizePage">识别页面</option>
                     <option value="loop">循环</option>
                     <option value="wait">等待</option>
                   </select>
@@ -913,6 +963,27 @@
                   <label>识别轮询间隔秒数</label>
                   <input type="number" min="0.2" step="0.1" v-model.number="activeNode.pollSeconds">
                 </div>
+                <div class="field" v-if="activeNode.type === 'recognizePage'">
+                  <label>要识别的页面</label>
+                  <select v-model="activeNode.pagePatternId" @change="applyPagePattern(activeNode)">
+                    <option value="">选择页面识别模板</option>
+                    <option v-for="pattern in pagePatterns" :key="pattern.id" :value="String(pattern.id)">
+                      {{ pattern.name }}
+                    </option>
+                  </select>
+                </div>
+                <div class="field" v-if="activeNode.type === 'recognizePage'">
+                  <label>页面特征</label>
+                  <textarea readonly :value="activeNode.pageName ? `${activeNode.pageName}：${(activeNode.requiredControls || []).map(item => item.label).join('、')}` : '先在左侧记录当前页面，再选择页面模板。'"></textarea>
+                </div>
+                <div class="field" v-if="activeNode.type === 'recognizePage'">
+                  <label>识别超时时间秒数</label>
+                  <input type="number" min="0.5" step="0.5" v-model.number="activeNode.detectTimeoutSeconds">
+                </div>
+                <div class="field" v-if="activeNode.type === 'recognizePage'">
+                  <label>识别轮询间隔秒数</label>
+                  <input type="number" min="0.2" step="0.1" v-model.number="activeNode.pollSeconds">
+                </div>
                 <div class="field" v-if="activeNode.type === 'loop'">
                   <label>循环次数</label>
                   <input type="number" min="1" max="999" v-model.number="activeNode.repeatCount">
@@ -1001,6 +1072,8 @@
                 <div v-if="node.type === 'launch'">{{ appName(node.packageName) }}</div>
                 <div v-if="node.controlText">{{ node.controlText }}</div>
                 <div v-if="node.type === 'condition'">最多识别 {{ node.detectTimeoutSeconds || 3 }} 秒</div>
+                <div v-if="node.type === 'recognizePage'">识别：{{ node.pageName || '未选择页面' }}</div>
+                <div v-if="node.type === 'recognizePage'">最多识别 {{ node.detectTimeoutSeconds || 3 }} 秒</div>
                 <div v-if="node.type === 'tap'">坐标 {{ node.xPoint || 0 }}, {{ node.yPoint || 0 }}</div>
                 <div v-if="node.type === 'swipe'">{{ swipeNodeSummary(node) }}</div>
                 <div v-if="node.type === 'input'">{{ inputNodeSummary(node) }}</div>
@@ -1106,6 +1179,9 @@
           controlKeyword: '',
           selectedControlCategory: '全部',
           controlPickerOpen: true,
+          pagePatterns: [],
+          pagePatternName: '',
+          pagePatternDescription: '',
           flows: [],
           selectedFlowId: '',
           flowName: '新流程',
@@ -1287,6 +1363,7 @@
           this.controlPickerOpen = true;
           await this.loadSnapshots();
           await this.loadFlows();
+          await this.loadPagePatterns();
         },
         async saveAppRemark() {
           if (!this.selectedPackage) return;
@@ -1323,6 +1400,76 @@
         async loadFlows() {
           this.flows = await this.request(`/api/admin/automation/flows?packageName=${encodeURIComponent(this.selectedPackage)}`) || [];
           if (!this.selectedFlowId) this.resetFlow();
+        },
+        async loadPagePatterns() {
+          if (!this.selectedPackage) {
+            this.pagePatterns = [];
+            return;
+          }
+          this.pagePatterns = await this.request(`/api/admin/automation/page-patterns?packageName=${encodeURIComponent(this.selectedPackage)}`) || [];
+        },
+        buildRecognitionControls() {
+          const picked = [];
+          const add = control => {
+            if (!control) return;
+            if (picked.some(item => item.key === control.key || item.label === this.controlLabel(control))) return;
+            picked.push({
+              key: control.key,
+              label: this.controlLabel(control),
+              category: this.controlCategory(control),
+              text: control.text || '',
+              contentDescription: control.contentDescription || '',
+              viewId: control.viewId || '',
+              className: control.className || '',
+              bounds: {
+                left: control.left,
+                top: control.top,
+                right: control.right,
+                bottom: control.bottom
+              }
+            });
+          };
+          add(this.selectedControl);
+          this.displayControls
+            .filter(control => this.controlCategory(control) !== '其它')
+            .sort((a, b) => this.controlPriority(b) - this.controlPriority(a))
+            .slice(0, 6)
+            .forEach(add);
+          return picked.slice(0, 8);
+        },
+        async savePagePattern() {
+          if (!this.selectedPackage || !this.snapshot) return this.notify('请先选择 App 和页面快照');
+          const name = this.pagePatternName.trim();
+          if (!name) return this.notify('请填写页面名称，例如：首页、评论区、个人主页');
+          const requiredControls = this.buildRecognitionControls();
+          if (requiredControls.length === 0) return this.notify('当前页面没有可用于识别的关键控件');
+          await this.request('/api/admin/automation/page-patterns', {
+            method: 'POST',
+            body: JSON.stringify({
+              packageName: this.selectedPackage,
+              name,
+              description: this.pagePatternDescription || null,
+              snapshotId: this.snapshot.id,
+              activityName: this.snapshot.activityName || this.snapshot.windowTitle || null,
+              requiredControls
+            })
+          });
+          this.pagePatternName = '';
+          this.pagePatternDescription = '';
+          await this.loadPagePatterns();
+          this.notify('页面识别模板已记录');
+        },
+        async deletePagePattern(pattern) {
+          if (!confirm(`确定删除页面识别模板“${pattern.name}”？`)) return;
+          await this.request(`/api/admin/automation/page-patterns/${pattern.id}`, { method: 'DELETE' });
+          await this.loadPagePatterns();
+        },
+        applyPagePattern(node) {
+          const pattern = this.pagePatterns.find(item => String(item.id) === String(node.pagePatternId));
+          if (!pattern) return;
+          node.pageName = pattern.name;
+          node.requiredControls = Array.isArray(pattern.requiredControls) ? JSON.parse(JSON.stringify(pattern.requiredControls)) : [];
+          node.label = `识别${pattern.name}`.slice(0, 20);
         },
         resetFlow() {
           this.selectedFlowId = '';
@@ -1521,6 +1668,24 @@
           this.graphNodes.push(node);
           this.activeNodeId = node.id;
         },
+        addRecognizePageNode() {
+          const pattern = this.pagePatterns[0];
+          const node = {
+            id: this.newId('node'),
+            type: 'recognizePage',
+            label: pattern ? `识别${pattern.name}`.slice(0, 20) : '识别页面',
+            pagePatternId: pattern ? String(pattern.id) : '',
+            pageName: pattern?.name || '',
+            requiredControls: Array.isArray(pattern?.requiredControls) ? JSON.parse(JSON.stringify(pattern.requiredControls)) : [],
+            detectTimeoutSeconds: 3,
+            pollSeconds: 0.5,
+            waitSeconds: 0,
+            x: 80 + this.graphNodes.length * 250,
+            y: 90 + (this.graphNodes.length % 4) * 120
+          };
+          this.graphNodes.push(node);
+          this.activeNodeId = node.id;
+        },
         addLoopNode() {
           const node = {
             id: this.newId('node'),
@@ -1707,6 +1872,7 @@
           if (node.type === 'swipe') return '滑动';
           if (node.type === 'input') return '输入文本';
           if (node.type === 'condition') return '条件判断';
+          if (node.type === 'recognizePage') return '识别页面';
           if (node.type === 'loop') return '循环';
           return '等待';
         },
