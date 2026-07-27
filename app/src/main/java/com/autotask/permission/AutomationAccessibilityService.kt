@@ -207,7 +207,11 @@ class AutomationAccessibilityService : AccessibilityService() {
                 sendRunnerStatus("已完成", "流程结束：${node.label}")
                 break
             }
-            if (next.delaySeconds > 0) sleepSeconds(next.delaySeconds)
+            if (next.delaySeconds > 0) {
+                sendFloatingLog("连线等待：${formatSeconds(next.delaySeconds)} 秒")
+                sendRunnerStatus("等待中", "连线等待 ${formatSeconds(next.delaySeconds)} 秒")
+                sleepSeconds(next.delaySeconds)
+            }
             node = next.node
         }
         if (guard >= MAX_FLOW_STEPS) sendFloatingLog("流程已停止：超过最大步数")
@@ -224,8 +228,12 @@ class AutomationAccessibilityService : AccessibilityService() {
             outcome = executeNodeOnce(node)
             if (index < repeat - 1 && interval > 0) sleepSeconds(interval)
         }
-        val wait = node.double("waitSeconds", 0.0).coerceAtLeast(0.0)
-        if (wait > 0) sleepSeconds(wait)
+        val wait = node.waitDurationSeconds()
+        if (wait > 0) {
+            sendFloatingLog("执行后等待：${formatSeconds(wait)} 秒")
+            sendRunnerStatus("等待中", "${node.label} 后等待 ${formatSeconds(wait)} 秒")
+            sleepSeconds(wait)
+        }
         return outcome
     }
 
@@ -699,7 +707,7 @@ class AutomationAccessibilityService : AccessibilityService() {
                 .ifEmpty { outgoing.filter { it.mode == "next" || it.mode.isBlank() } }
             val edge = candidates.firstOrNull { it.shouldTrigger() } ?: return null
             val next = nodes.firstOrNull { it.id == edge.to } ?: return null
-            return NextNode(next, edge.delaySeconds)
+            return NextNode(next, edge.delayDurationSeconds())
         }
 
         companion object {
@@ -727,10 +735,21 @@ class AutomationAccessibilityService : AccessibilityService() {
         val to: String,
         val mode: String,
         val probability: Int,
-        val delaySeconds: Double
+        val delaySeconds: Double,
+        val delayMode: String,
+        val delayMinSeconds: Double,
+        val delayMaxSeconds: Double
     ) {
         fun shouldTrigger(): Boolean =
             probability >= 100 || Random.nextInt(100) < probability.coerceIn(0, 100)
+
+        fun delayDurationSeconds(): Double {
+            return if (delayMode == "random") {
+                randomSeconds(delayMinSeconds, delayMaxSeconds)
+            } else {
+                delaySeconds.coerceAtLeast(0.0)
+            }
+        }
 
         companion object {
             fun fromJson(json: JSONObject): FlowEdge =
@@ -739,7 +758,10 @@ class AutomationAccessibilityService : AccessibilityService() {
                     to = json.optString("to"),
                     mode = json.optString("mode", "next"),
                     probability = json.optInt("probability", 100),
-                    delaySeconds = json.optDouble("delaySeconds", 0.0)
+                    delaySeconds = json.optDouble("delaySeconds", 0.0),
+                    delayMode = json.optString("delayMode", "fixed"),
+                    delayMinSeconds = json.optDouble("delayMinSeconds", json.optDouble("delaySeconds", 0.0)),
+                    delayMaxSeconds = json.optDouble("delayMaxSeconds", json.optDouble("delaySeconds", 0.0))
                 )
         }
     }
@@ -759,6 +781,17 @@ class AutomationAccessibilityService : AccessibilityService() {
 
         fun double(key: String, fallback: Double): Double =
             if (json.has(key) && !json.isNull(key)) json.optDouble(key, fallback) else fallback
+
+        fun waitDurationSeconds(): Double {
+            return if (string("waitMode") == "random") {
+                randomSeconds(
+                    double("waitMinSeconds", double("waitSeconds", 0.0)),
+                    double("waitMaxSeconds", double("waitSeconds", 0.0))
+                )
+            } else {
+                double("waitSeconds", 0.0).coerceAtLeast(0.0)
+            }
+        }
 
         fun array(key: String): List<Any?> {
             val array = json.optJSONArray(key) ?: return emptyList()
@@ -831,5 +864,17 @@ class AutomationAccessibilityService : AccessibilityService() {
         const val EXTRA_APP_LOOP_REPEAT = "app_loop_repeat"
         private const val COMMAND_START = "start"
         private const val COMMAND_PAUSE = "pause"
+
+        private fun randomSeconds(minSeconds: Double, maxSeconds: Double): Double {
+            val min = minSeconds.coerceAtLeast(0.0)
+            val max = maxSeconds.coerceAtLeast(min)
+            if (max <= min) return min
+            return min + Random.nextDouble() * (max - min)
+        }
+
+        private fun formatSeconds(seconds: Double): String {
+            val rounded = kotlin.math.round(seconds * 10.0) / 10.0
+            return if (rounded % 1.0 == 0.0) rounded.toInt().toString() else rounded.toString()
+        }
     }
 }

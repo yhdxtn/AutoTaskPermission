@@ -745,6 +745,7 @@
     }
     .graph-toolbar input, .graph-toolbar select { width: 180px; }
     .graph-toolbar input.compact { width: 88px; }
+    .graph-toolbar select.compact-select { width: 76px; }
     .node-palette {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1055,8 +1056,22 @@
                   </select>
                 </div>
                 <div class="field">
+                  <label>执行后等待方式</label>
+                  <select v-model="activeNode.waitMode">
+                    <option value="fixed">固定秒数</option>
+                    <option value="random">随机区间</option>
+                  </select>
+                </div>
+                <div class="field" v-if="activeNode.waitMode !== 'random'">
                   <label>执行后等待秒数</label>
                   <input type="number" min="0" step="0.5" v-model.number="activeNode.waitSeconds">
+                </div>
+                <div class="field" v-if="activeNode.waitMode === 'random'">
+                  <label>随机等待区间秒数</label>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <input type="number" min="0" step="0.5" v-model.number="activeNode.waitMinSeconds" placeholder="最少，如 2">
+                    <input type="number" min="0" step="0.5" v-model.number="activeNode.waitMaxSeconds" placeholder="最多，如 18">
+                  </div>
                 </div>
                 <div class="field" v-if="supportsNodeRepeat(activeNode)">
                   <label>节点内循环次数</label>
@@ -1242,7 +1257,16 @@
             <input class="compact" type="number" min="0" max="100" step="1" v-model.number="edgeProbability">
             <span class="muted">%</span>
             <label class="muted">连线前等待</label>
-            <input class="compact" type="number" min="0" step="0.5" v-model.number="edgeDelaySeconds">
+            <select v-model="edgeDelayMode" class="compact-select">
+              <option value="fixed">固定</option>
+              <option value="random">随机</option>
+            </select>
+            <input class="compact" v-if="edgeDelayMode !== 'random'" type="number" min="0" step="0.5" v-model.number="edgeDelaySeconds">
+            <template v-if="edgeDelayMode === 'random'">
+              <input class="compact" type="number" min="0" step="0.5" v-model.number="edgeDelayMinSeconds" title="随机最少秒数">
+              <span class="muted">-</span>
+              <input class="compact" type="number" min="0" step="0.5" v-model.number="edgeDelayMaxSeconds" title="随机最多秒数">
+            </template>
             <span class="muted">秒</span>
             <label class="muted">循环从</label>
             <select v-model="loopStartNodeId">
@@ -1332,7 +1356,7 @@
                 <div v-if="node.type === 'input'">{{ inputNodeSummary(node) }}</div>
                 <div v-if="nodeLoopSummary(node)">{{ nodeLoopSummary(node) }}</div>
                 <div v-if="node.type === 'loop'">{{ loopNodeSummary(node) }}</div>
-                <div>执行后等待 {{ node.waitSeconds || 0 }} 秒</div>
+                <div>{{ waitNodeSummary(node) }}</div>
               </div>
             </article>
           </div>
@@ -1503,7 +1527,10 @@
           selectedEdgeId: '',
           edgeMode: 'next',
           edgeProbability: 100,
+          edgeDelayMode: 'fixed',
           edgeDelaySeconds: 0,
+          edgeDelayMinSeconds: 2,
+          edgeDelayMaxSeconds: 8,
           loopStartNodeId: '',
           loopEndNodeId: '',
           loopBackCount: 2,
@@ -2002,7 +2029,7 @@
           this.flowName = flow.name;
           this.flowDescription = flow.description || '';
           this.graphNodes = Array.isArray(flow.nodes) ? JSON.parse(JSON.stringify(flow.nodes)).map(this.normalizeNode) : [];
-          this.graphEdges = Array.isArray(flow.edges) ? JSON.parse(JSON.stringify(flow.edges)) : [];
+          this.graphEdges = Array.isArray(flow.edges) ? JSON.parse(JSON.stringify(flow.edges)).map(this.normalizeEdge) : [];
           this.activeNodeId = this.graphNodes[0]?.id || '';
         },
         async saveFlow() {
@@ -2013,8 +2040,8 @@
             name: this.flowName.trim(),
             description: this.flowDescription || null,
             enabled: true,
-            nodes: this.graphNodes,
-            edges: this.graphEdges
+            nodes: this.graphNodes.map(this.normalizeNode),
+            edges: this.graphEdges.map(this.normalizeEdge)
           };
           const path = this.selectedFlowId ? `/api/admin/automation/flows/${this.selectedFlowId}` : '/api/admin/automation/flows';
           const method = this.selectedFlowId ? 'PUT' : 'POST';
@@ -2037,7 +2064,10 @@
           this.selectedEdgeId = edge.id;
           this.edgeMode = edge.mode || 'next';
           this.edgeProbability = edge.probability == null ? 100 : Number(edge.probability);
+          this.edgeDelayMode = edge.delayMode || 'fixed';
           this.edgeDelaySeconds = Number(edge.delaySeconds || 0);
+          this.edgeDelayMinSeconds = Number(edge.delayMinSeconds ?? edge.delaySeconds ?? 2);
+          this.edgeDelayMaxSeconds = Number(edge.delayMaxSeconds ?? edge.delaySeconds ?? 8);
           this.notify('已选中连线，可在画布工具条修改后重新连接');
         },
         addClickNode(control) {
@@ -2063,6 +2093,10 @@
         normalizeNode(node) {
           if (node.type === 'tap' && !node.coordinateMode) node.coordinateMode = 'absolute';
           if (node.type === 'swipe' && !node.coordinateMode) node.coordinateMode = 'absolute';
+          if (!node.waitMode) node.waitMode = 'fixed';
+          if (node.waitSeconds == null) node.waitSeconds = 0;
+          if (node.waitMinSeconds == null) node.waitMinSeconds = Number(node.waitSeconds || 0);
+          if (node.waitMaxSeconds == null) node.waitMaxSeconds = Math.max(Number(node.waitMinSeconds || 0), Number(node.waitSeconds || 0));
           if (this.supportsNodeRepeat(node)) {
             if (!node.repeatCount) node.repeatCount = 1;
             if (node.loopProbability == null) node.loopProbability = 100;
@@ -2078,6 +2112,14 @@
         },
         normalizeActiveNode() {
           if (this.activeNode) this.normalizeNode(this.activeNode);
+        },
+        normalizeEdge(edge) {
+          if (!edge.delayMode) edge.delayMode = 'fixed';
+          if (edge.delaySeconds == null) edge.delaySeconds = 0;
+          if (edge.delayMinSeconds == null) edge.delayMinSeconds = Number(edge.delaySeconds || 0);
+          if (edge.delayMaxSeconds == null) edge.delayMaxSeconds = Math.max(Number(edge.delayMinSeconds || 0), Number(edge.delaySeconds || 0));
+          edge.probability = this.normalizedProbability(edge.probability);
+          return edge;
         },
         addWaitNode() {
           const node = {
@@ -2315,7 +2357,10 @@
             to,
             mode,
             probability: this.normalizedProbability(probability),
-            delaySeconds: Math.max(0, Number(delaySeconds || 0))
+            delayMode: 'fixed',
+            delaySeconds: Math.max(0, Number(delaySeconds || 0)),
+            delayMinSeconds: Math.max(0, Number(delaySeconds || 0)),
+            delayMaxSeconds: Math.max(0, Number(delaySeconds || 0))
           });
         },
         replaceNodeControl(node) {
@@ -2478,7 +2523,10 @@
               to: nodeId,
               mode: this.edgeMode,
               probability: this.normalizedProbability(this.edgeProbability),
-              delaySeconds: Math.max(0, Number(this.edgeDelaySeconds || 0))
+              delayMode: this.edgeDelayMode || 'fixed',
+              delaySeconds: Math.max(0, Number(this.edgeDelaySeconds || 0)),
+              delayMinSeconds: Math.max(0, Number(this.edgeDelayMinSeconds || 0)),
+              delayMaxSeconds: Math.max(0, Number(this.edgeDelayMaxSeconds || 0))
             });
           }
           this.connectingFrom = '';
@@ -2519,12 +2567,21 @@
           if (mode === 'loop') label = '循环体';
           if (mode === 'done') label = '结束';
           const probability = edge.probability == null ? 100 : Number(edge.probability);
-          const delay = Number(edge.delaySeconds || 0);
+          const delay = this.edgeDelayText(edge);
           const suffix = [
             probability < 100 ? `${probability}%` : '',
-            delay > 0 ? `${delay}s` : ''
+            delay
           ].filter(Boolean).join(' ');
           return suffix ? `${label} ${suffix}` : label;
+        },
+        edgeDelayText(edge) {
+          if ((edge.delayMode || 'fixed') === 'random') {
+            const min = Math.max(0, Number(edge.delayMinSeconds || 0));
+            const max = Math.max(min, Number(edge.delayMaxSeconds || min));
+            return max > 0 ? `随机${min}-${max}s` : '';
+          }
+          const delay = Number(edge.delaySeconds || 0);
+          return delay > 0 ? `${delay}s` : '';
         },
         normalizedProbability(value) {
           const number = Number(value);
@@ -2569,6 +2626,14 @@
           const end = this.nodeById(node.loopEndNodeId)?.label;
           const range = start && end ? `，范围 ${start} 到 ${end}` : '';
           return `循环 ${count} 轮（${source}）${range}，概率 ${probability}%，间隔 ${interval} 秒`;
+        },
+        waitNodeSummary(node) {
+          if ((node.waitMode || 'fixed') === 'random') {
+            const min = Math.max(0, Number(node.waitMinSeconds || 0));
+            const max = Math.max(min, Number(node.waitMaxSeconds || min));
+            return `执行后随机等待 ${min}-${max} 秒`;
+          }
+          return `执行后等待 ${node.waitSeconds || 0} 秒`;
         },
         recognizePageSummary(node) {
           if (!node?.pageName) return '先在左侧记录当前页面，再选择页面模板。';
