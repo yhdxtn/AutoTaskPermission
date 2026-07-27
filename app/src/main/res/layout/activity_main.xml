@@ -121,6 +121,19 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <TextView
+                    android:id="@+id/taskStatusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_permission_card"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:singleLine="true"
+                    android:text="任务状态：待开始"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp" />
+
                 <LinearLayout
                     android:id="@+id/homeSections"
                     android:layout_width="match_parent"

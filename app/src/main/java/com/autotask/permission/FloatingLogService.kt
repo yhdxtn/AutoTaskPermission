@@ -50,6 +50,8 @@ class FloatingLogService : Service() {
     private var expandedHeight = 0
     private var collapsedWidth = 0
     private var collapsedHeight = 0
+    private var runnerStatus = "待开始"
+    private var runnerStep = "请选择功能后点开始"
     private val activationPrefs by lazy { getSharedPreferences("activation", MODE_PRIVATE) }
 
     private val logReceiver = object : BroadcastReceiver() {
@@ -214,12 +216,14 @@ class FloatingLogService : Service() {
         controls.addView(actionButton("开始") {
             val mode = selectedFeature()
             activationPrefs.edit().putBoolean(KEY_FEATURE_RUNNING, true).apply()
+            updateRunnerStatus("运行中", mode)
             appendLog("开始执行：$mode")
             sendRunnerCommand(ACTION_START_FEATURE, mode)
         })
         controls.addView(actionButton("暂停") {
             val mode = selectedFeature()
             activationPrefs.edit().putBoolean(KEY_FEATURE_RUNNING, false).apply()
+            updateRunnerStatus("已暂停", mode)
             appendLog("已暂停：$mode")
             sendRunnerCommand(ACTION_PAUSE_FEATURE, mode)
         })
@@ -280,6 +284,7 @@ class FloatingLogService : Service() {
             windowManager.addView(root, params)
             overlayView = root
             overlayParams = params
+            updateRunnerStatus(initialRunnerStatus(), selectedFeature())
             updateOverlayVisibility()
             appendLog("悬浮窗已启动")
         }.onFailure {
@@ -296,8 +301,8 @@ class FloatingLogService : Service() {
     private fun setFolded(folded: Boolean) {
         expanded = !folded
         bodyContainer.visibility = if (expanded) View.VISIBLE else View.GONE
-        titleView.text = if (expanded) "自动任务助手 · 活动日志" else "日志"
         foldButton.text = if (expanded) "折叠" else "展开"
+        refreshHeaderTitle()
         overlayParams?.let { params ->
             params.width = if (expanded) expandedWidth else collapsedWidth
             params.height = if (expanded) expandedHeight else collapsedHeight
@@ -393,9 +398,24 @@ class FloatingLogService : Service() {
 
     private fun updateRunnerStatus(status: String, step: String) {
         if (!::statusView.isInitialized) return;
-        statusView.text = "状态：${status.ifBlank { "运行中" }}"
-        stepView.text = "当前：${step.ifBlank { "等待下一步" }}"
+        runnerStatus = status.ifBlank { "运行中" }
+        runnerStep = step.ifBlank { "等待下一步" }
+        statusView.text = "状态：$runnerStatus"
+        stepView.text = "当前：$runnerStep"
+        refreshHeaderTitle()
     }
+
+    private fun refreshHeaderTitle() {
+        if (!::titleView.isInitialized) return
+        titleView.text = if (expanded) {
+            "自动任务助手 · $runnerStatus"
+        } else {
+            runnerStatus
+        }
+    }
+
+    private fun initialRunnerStatus(): String =
+        if (activationPrefs.getBoolean(KEY_FEATURE_RUNNING, false)) "运行中" else "已暂停"
 
     private fun inferRunnerStatusFromLog(message: String) {
         if (!::statusView.isInitialized) return

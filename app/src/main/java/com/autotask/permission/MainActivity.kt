@@ -42,6 +42,7 @@ class MainActivity : Activity() {
     private lateinit var navHome: TextView
     private lateinit var navDiscover: TextView
     private lateinit var navProfile: TextView
+    private lateinit var taskStatusText: TextView
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -105,6 +106,7 @@ class MainActivity : Activity() {
         super.onResume()
         if (activationReady) {
             updatePermissionStates()
+            updateTaskStatus()
             updateFloatingLogService()
         }
         notifyFloatingLogAppVisibility(true)
@@ -130,6 +132,7 @@ class MainActivity : Activity() {
         navHome = findViewById(R.id.navHome)
         navDiscover = findViewById(R.id.navDiscover)
         navProfile = findViewById(R.id.navProfile)
+        taskStatusText = findViewById(R.id.taskStatusText)
     }
 
     private fun checkActivation() {
@@ -245,6 +248,7 @@ class MainActivity : Activity() {
         activationReady = true
         rootContainer.visibility = View.VISIBLE
         updatePermissionStates()
+        updateTaskStatus()
         updateFloatingLogService()
     }
 
@@ -359,6 +363,7 @@ class MainActivity : Activity() {
         activationPrefs.edit()
             .putString(KEY_SELECTED_FEATURE, item.label)
             .apply()
+        updateTaskStatus()
         sendFloatingLog("已选择功能：${item.label}")
 
         val content = LinearLayout(this).apply {
@@ -394,7 +399,9 @@ class MainActivity : Activity() {
             .putString(KEY_SELECTED_FEATURE, featureName)
             .putBoolean(KEY_FEATURE_RUNNING, true)
             .apply()
+        updateTaskStatus()
         sendFloatingLog("开始执行：$featureName")
+        sendRunnerStatus("运行中", featureName)
         sendRunnerCommand(ACTION_START_FEATURE, featureName)
         Toast.makeText(this, "已开始：$featureName", Toast.LENGTH_SHORT).show()
     }
@@ -404,9 +411,22 @@ class MainActivity : Activity() {
             .putString(KEY_SELECTED_FEATURE, featureName)
             .putBoolean(KEY_FEATURE_RUNNING, false)
             .apply()
+        updateTaskStatus()
         sendFloatingLog("已暂停：$featureName")
+        sendRunnerStatus("已暂停", featureName)
         sendRunnerCommand(ACTION_PAUSE_FEATURE, featureName)
         Toast.makeText(this, "已暂停：$featureName", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateTaskStatus() {
+        if (!::taskStatusText.isInitialized) return
+        val featureName = activationPrefs.getString(KEY_SELECTED_FEATURE, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: "未选择功能"
+        val running = activationPrefs.getBoolean(KEY_FEATURE_RUNNING, false)
+        val status = if (running) "运行中" else "已暂停"
+        taskStatusText.text = "任务状态：$status · 当前功能：$featureName"
+        taskStatusText.setTextColor(getColor(if (running) R.color.brand else R.color.text_secondary))
     }
 
     private fun featureCellWidth(): Int {
@@ -536,6 +556,15 @@ class MainActivity : Activity() {
                 .setPackage(packageName)
                 .putExtra(AutomationAccessibilityService.EXTRA_RUNNER_COMMAND, command)
                 .putExtra(AutomationAccessibilityService.EXTRA_FEATURE_NAME, featureName)
+        )
+    }
+
+    private fun sendRunnerStatus(status: String, step: String) {
+        sendBroadcast(
+            Intent(FloatingLogService.ACTION_RUNNER_STATUS)
+                .setPackage(packageName)
+                .putExtra(FloatingLogService.EXTRA_STATUS, status)
+                .putExtra(FloatingLogService.EXTRA_STEP, step)
         )
     }
 
