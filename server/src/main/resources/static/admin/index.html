@@ -1138,7 +1138,7 @@
                   <label>每轮间隔秒数</label>
                   <input type="number" min="0" step="0.5" v-model.number="activeNode.intervalSeconds">
                 </div>
-                <button class="danger" @click="removeNode(activeNode.id)">删除节点</button>
+                <button class="danger" type="button" @click.stop.prevent="deleteNode($event, activeNode.id)">删除节点</button>
               </template>
               <div v-else class="empty">选择一个节点后可编辑动作和等待时间。</div>
             </div>
@@ -1211,7 +1211,13 @@
               <div class="port out" @click.stop="startConnect(node.id)"></div>
               <div class="node-title" @pointerdown="startDrag($event, node)">
                 <span>{{ node.label }}</span>
-                <button class="small" @click.stop="removeNode(node.id)">删</button>
+                <button
+                  type="button"
+                  class="small"
+                  @pointerdown.stop.prevent
+                  @mousedown.stop.prevent
+                  @click.stop.prevent="deleteNode($event, node.id)"
+                >删</button>
               </div>
               <div class="node-body">
                 <div>{{ nodeTypeText(node) }}</div>
@@ -2121,6 +2127,14 @@
           this.graphNodes = this.graphNodes.filter(node => node.id !== nodeId);
           this.graphEdges = this.graphEdges.filter(edge => edge.from !== nodeId && edge.to !== nodeId);
           if (this.activeNodeId === nodeId) this.activeNodeId = '';
+          if (this.connectingFrom === nodeId) this.connectingFrom = '';
+          if (this.dragState?.node?.id === nodeId) this.dragState = null;
+        },
+        deleteNode(event, nodeId) {
+          event?.preventDefault?.();
+          event?.stopPropagation?.();
+          this.removeNode(nodeId);
+          this.notify('节点已删除，保存流程后生效');
         },
         startConnect(nodeId) {
           this.connectingFrom = nodeId;
