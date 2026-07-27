@@ -263,18 +263,34 @@ class MainActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = getDrawable(R.drawable.bg_section_card)
-            setPadding(dp(14), dp(14), dp(14), dp(12))
+            setPadding(dp(12), dp(12), dp(12), dp(10))
         }
         card.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(14) }
-        card.addView(TextView(this).apply {
+        ).apply { topMargin = dp(10) }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(8))
+        }
+        header.addView(TextView(this).apply {
             text = title
-            textSize = 18f
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(getColor(R.color.section_title))
-            setPadding(0, 0, 0, dp(10))
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(TextView(this).apply {
+            text = "${items.size}项"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setTextColor(getColor(R.color.brand))
+            background = getDrawable(R.drawable.bg_icon_soft)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
         })
+        card.addView(header)
         card.addView(View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
@@ -286,7 +302,7 @@ class MainActivity : Activity() {
             alignmentMode = GridLayout.ALIGN_MARGINS
             clipChildren = false
             clipToPadding = false
-            setPadding(0, dp(8), 0, 0)
+            setPadding(0, dp(6), 0, 0)
         }
         populateGrid(grid, items)
         card.addView(grid)
@@ -294,6 +310,7 @@ class MainActivity : Activity() {
     }
 
     private fun populateGrid(grid: GridLayout, items: List<FeatureItem>) {
+        val cellWidth = featureCellWidth()
         items.forEach { item ->
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -302,22 +319,18 @@ class MainActivity : Activity() {
                 isFocusable = true
                 background = getDrawable(R.drawable.bg_feature_ripple)
                 setPadding(dp(4), dp(8), dp(4), dp(10))
-                contentDescription = item.label
+                contentDescription = "功能入口：${item.label}"
                 setOnClickListener {
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.feature_clicked, item.label),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    showFeatureDialog(item)
                 }
             }
             cell.layoutParams = GridLayout.LayoutParams().apply {
-                width = 0
-                height = dp(112)
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                width = cellWidth
+                height = dp(96)
+                setMargins(0, dp(4), 0, dp(4))
             }
             cell.addView(TextView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+                layoutParams = LinearLayout.LayoutParams(dp(52), dp(52))
                 background = getDrawable(R.drawable.bg_feature_icon)
                 gravity = Gravity.CENTER
                 text = item.symbol
@@ -329,7 +342,7 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(8) }
+                ).apply { topMargin = dp(7) }
                 text = item.label
                 setTextColor(getColor(R.color.text_primary))
                 textSize = 13.5f
@@ -340,6 +353,65 @@ class MainActivity : Activity() {
             })
             grid.addView(cell)
         }
+    }
+
+    private fun showFeatureDialog(item: FeatureItem) {
+        activationPrefs.edit()
+            .putString(KEY_SELECTED_FEATURE, item.label)
+            .apply()
+        sendFloatingLog("已选择功能：${item.label}")
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(8), dp(4), 0)
+        }
+        content.addView(TextView(this).apply {
+            text = "${item.label} 的动作流程在后台录入和编排，手机端这里只负责选择模式、开始和暂停。"
+            setTextColor(getColor(R.color.text_secondary))
+            textSize = 14f
+            setLineSpacing(dp(3).toFloat(), 1f)
+        })
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(item.label)
+            .setView(content)
+            .setPositiveButton("开始") { _, _ -> startFeature(item.label) }
+            .setNegativeButton("暂停") { _, _ -> pauseFeature(item.label) }
+            .setNeutralButton("介绍") { _, _ ->
+                Toast.makeText(this, "先在后台流程编排里录动作，再回到这里点开始。", Toast.LENGTH_LONG).show()
+            }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).contentDescription = "开始${item.label}"
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).contentDescription = "暂停${item.label}"
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).contentDescription = "介绍${item.label}"
+        }
+        dialog.show()
+    }
+
+    private fun startFeature(featureName: String) {
+        activationPrefs.edit()
+            .putString(KEY_SELECTED_FEATURE, featureName)
+            .putBoolean(KEY_FEATURE_RUNNING, true)
+            .apply()
+        sendFloatingLog("开始执行：$featureName")
+        Toast.makeText(this, "已开始：$featureName", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun pauseFeature(featureName: String) {
+        activationPrefs.edit()
+            .putString(KEY_SELECTED_FEATURE, featureName)
+            .putBoolean(KEY_FEATURE_RUNNING, false)
+            .apply()
+        sendFloatingLog("已暂停：$featureName")
+        Toast.makeText(this, "已暂停：$featureName", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun featureCellWidth(): Int {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val pagePadding = dp(24)
+        val cardPadding = dp(24)
+        return (screenWidth - pagePadding - cardPadding) / 3
     }
 
     private fun buildProfileActions() {
@@ -448,6 +520,14 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun sendFloatingLog(message: String) {
+        sendBroadcast(
+            Intent(FloatingLogService.ACTION_ACTIVITY_LOG)
+                .setPackage(packageName)
+                .putExtra(FloatingLogService.EXTRA_MESSAGE, message)
+        )
+    }
+
     private fun applySystemBarInsets() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             applySystemBarInsetsApi30()
@@ -524,5 +604,7 @@ class MainActivity : Activity() {
     companion object {
         private const val KEY_ACTIVATION_CODE = "activation_code"
         private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
+        private const val KEY_SELECTED_FEATURE = "selected_feature"
+        private const val KEY_FEATURE_RUNNING = "feature_running"
     }
 }

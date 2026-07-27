@@ -23,6 +23,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -47,6 +48,7 @@ class FloatingLogService : Service() {
     private var expandedHeight = 0
     private var collapsedWidth = 0
     private var collapsedHeight = 0
+    private val activationPrefs by lazy { getSharedPreferences("activation", MODE_PRIVATE) }
 
     private val logReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -170,24 +172,35 @@ class FloatingLogService : Service() {
             gravity = Gravity.TOP
         }
         bodyContainer.addView(controls, LinearLayout.LayoutParams(dp(82), LinearLayout.LayoutParams.MATCH_PARENT))
-        controls.addView(actionButton("打开主页") {
+        controls.addView(actionButton("介绍") {
+            val mode = selectedFeature()
+            appendLog("$mode：流程在后台录入，点开始后按后台配置执行")
+            Toast.makeText(this, "$mode 的动作在后台流程编排里配置", Toast.LENGTH_LONG).show()
+        })
+        controls.addView(actionButton("开始") {
+            val mode = selectedFeature()
+            activationPrefs.edit().putBoolean(KEY_FEATURE_RUNNING, true).apply()
+            appendLog("开始执行：$mode")
+        })
+        controls.addView(actionButton("暂停") {
+            val mode = selectedFeature()
+            activationPrefs.edit().putBoolean(KEY_FEATURE_RUNNING, false).apply()
+            appendLog("已暂停：$mode")
+        })
+        controls.addView(actionButton("主页") {
             startActivity(
                 Intent(this, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
             appendLog("已打开助手主页")
         })
-        controls.addView(actionButton("清空日志") {
+        controls.addView(actionButton("清空") {
             logLines.clear()
             refreshLogs()
             appendLog("日志已清空")
         })
-        controls.addView(actionButton("折叠窗口") {
-            setFolded(true)
-        })
-        controls.addView(actionButton("关闭窗口") {
-            getSharedPreferences("activation", MODE_PRIVATE)
-                .edit()
+        controls.addView(actionButton("关闭") {
+            activationPrefs.edit()
                 .putBoolean(KEY_FLOATING_WINDOW_ENABLED, false)
                 .apply()
             removeOverlay()
@@ -287,9 +300,12 @@ class FloatingLogService : Service() {
             setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { action() }
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(40)
-            ).apply { bottomMargin = dp(6) }
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(32)
+            ).apply { bottomMargin = dp(5) }
         }
+
+    private fun selectedFeature(): String =
+        activationPrefs.getString(KEY_SELECTED_FEATURE, null)?.takeIf { it.isNotBlank() } ?: "当前功能"
 
     private fun attachDragHandler(header: View, params: WindowManager.LayoutParams) {
         var startX = 0
@@ -385,5 +401,7 @@ class FloatingLogService : Service() {
         private const val CHANNEL_ID = "floating_log"
         private const val NOTIFICATION_ID = 1001
         private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
+        private const val KEY_SELECTED_FEATURE = "selected_feature"
+        private const val KEY_FEATURE_RUNNING = "feature_running"
     }
 }

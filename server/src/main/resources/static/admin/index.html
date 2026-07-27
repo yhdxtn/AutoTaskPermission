@@ -68,19 +68,33 @@
     .brand span { color: #9fb0c6; font-size: 13px; }
     .nav {
       display: grid;
-      gap: 8px;
+      gap: 6px;
+    }
+    .nav-section-title {
+      margin: 14px 0 4px;
+      padding: 0 10px;
+      color: #7f95b1;
+      font-size: 12px;
     }
     .nav button {
-      height: 42px;
+      height: 38px;
       border: 0;
       background: transparent;
       color: #bfd0e5;
       text-align: left;
       padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
     .nav button.active {
       background: #20324a;
       color: #fff;
+    }
+    .nav button span:last-child {
+      color: #7f95b1;
+      font-size: 12px;
     }
     .content {
       min-width: 0;
@@ -123,6 +137,55 @@
       border-radius: 8px;
       overflow: hidden;
     }
+    .dashboard {
+      display: grid;
+      gap: 12px;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .metric-card {
+      min-height: 92px;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .metric-card span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .metric-card strong {
+      display: block;
+      margin-top: 10px;
+      font-size: 26px;
+    }
+    .module-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .module-card {
+      min-height: 132px;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .module-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
+    .module-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 13px;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -162,6 +225,9 @@
       gap: 10px;
       height: clamp(420px, 44vh, 620px);
       min-height: 0;
+    }
+    .grid.controls-only {
+      grid-template-columns: 300px minmax(560px, 1fr);
     }
     .pane {
       min-height: 0;
@@ -502,6 +568,7 @@
       .sidebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .brand { margin-bottom: 0; }
       .nav { display: flex; }
+      .metric-grid, .module-grid { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; height: auto; overflow: visible; }
       .pane { min-height: 420px; }
       .control-picker-panel { grid-template-columns: 1fr; height: 420px; }
@@ -519,14 +586,21 @@
         <span>Vue Admin · 控件编排</span>
       </div>
       <nav class="nav">
-        <button :class="{active: tab === 'automation'}" @click="tab = 'automation'">App 控件编排</button>
-        <button :class="{active: tab === 'codes'}" @click="tab = 'codes'">激活码</button>
+        <button :class="{active: tab === 'dashboard'}" @click="tab = 'dashboard'"><span>工作台</span><span>总览</span></button>
+        <div class="nav-section-title">自动化</div>
+        <button :class="{active: tab === 'controls'}" @click="tab = 'controls'"><span>App 控件库</span><span>采集</span></button>
+        <button :class="{active: tab === 'automation'}" @click="tab = 'automation'"><span>流程编排</span><span>连线</span></button>
+        <button :class="{active: tab === 'templates'}" @click="tab = 'templates'"><span>任务模板</span><span>模式</span></button>
+        <button :class="{active: tab === 'logs'}" @click="tab = 'logs'"><span>执行日志</span><span>记录</span></button>
+        <div class="nav-section-title">系统</div>
+        <button :class="{active: tab === 'devices'}" @click="tab = 'devices'"><span>设备管理</span><span>在线</span></button>
+        <button :class="{active: tab === 'codes'}" @click="tab = 'codes'"><span>授权管理</span><span>激活码</span></button>
       </nav>
     </aside>
 
     <section class="content">
       <div class="topbar">
-        <strong>{{ tab === 'automation' ? '流程编排' : '激活码管理' }}</strong>
+        <strong>{{ pageTitle }}</strong>
         <div class="account">
           <span>{{ accountText }}</span>
           <form method="post" action="/admin/logout">
@@ -535,9 +609,34 @@
         </div>
       </div>
 
-      <main class="workspace" v-if="tab === 'automation'">
-        <div class="grid">
-          <section class="pane">
+      <main class="workspace" v-if="tab === 'dashboard'">
+        <section class="dashboard">
+          <div class="metric-grid">
+            <div class="metric-card"><span>已采集 App</span><strong>{{ apps.length }}</strong></div>
+            <div class="metric-card"><span>当前控件数</span><strong>{{ totalControlCount }}</strong></div>
+            <div class="metric-card"><span>流程数量</span><strong>{{ flows.length }}</strong></div>
+            <div class="metric-card"><span>激活码</span><strong>{{ codes.length }}</strong></div>
+          </div>
+          <div class="module-grid">
+            <article class="module-card" @click="tab = 'controls'">
+              <strong>App 控件库</strong>
+              <p>打开手机端或 DY 页面后，控件会自动录入到这里，可按 App、页面快照、控件分类查找。</p>
+            </article>
+            <article class="module-card" @click="tab = 'automation'">
+              <strong>流程编排</strong>
+              <p>把启动 App、点击控件、输入、滑动、条件、循环、等待按线连接起来，手机端只负责开始或暂停。</p>
+            </article>
+            <article class="module-card" @click="tab = 'codes'">
+              <strong>授权管理</strong>
+              <p>生成 1 天、3 天、7 天、15 天、1 个月、1 年激活码，到期后 App 自动不可用。</p>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <main class="workspace" v-if="tab === 'automation' || tab === 'controls'">
+        <div :class="['grid', {'controls-only': tab === 'controls'}]">
+          <section class="pane" v-if="tab === 'automation'">
             <header>
               <strong>选择 App</strong>
               <button class="small" @click="loadApps">刷新</button>
@@ -829,7 +928,7 @@
           </section>
         </div>
 
-        <section class="pane flow-canvas-pane">
+        <section class="pane flow-canvas-pane" v-if="tab === 'automation'">
           <header>
             <strong>流程图画布</strong>
             <span class="muted">先选择连线含义，再从节点右侧端口连到另一个节点左侧端口。</span>
@@ -962,6 +1061,27 @@
           </table>
         </section>
       </main>
+
+      <main class="workspace" v-if="tab === 'templates'">
+        <section class="panel empty">
+          <strong>任务模板</strong>
+          <div style="margin-top:8px">这里后续放“普通观看、万能观看、评论浏览、粉丝浏览”等模式模板。现在先在流程编排里按 App 保存流程。</div>
+        </section>
+      </main>
+
+      <main class="workspace" v-if="tab === 'logs'">
+        <section class="panel empty">
+          <strong>执行日志</strong>
+          <div style="margin-top:8px">手机端悬浮窗会显示介绍、开始、暂停和运行日志；服务端执行日志接口接上后会显示到这里。</div>
+        </section>
+      </main>
+
+      <main class="workspace" v-if="tab === 'devices'">
+        <section class="panel empty">
+          <strong>设备管理</strong>
+          <div style="margin-top:8px">已绑定设备会来自激活码和控件快照，后面可以在这里做在线状态、解绑、备注和分组。</div>
+        </section>
+      </main>
     </section>
 
     <div v-if="toast" class="toast">{{ toast }}</div>
@@ -973,7 +1093,7 @@
     createApp({
       data() {
         return {
-          tab: 'automation',
+          tab: 'dashboard',
           accountText: '正在读取账号...',
           toast: '',
           apps: [],
@@ -1019,6 +1139,21 @@
         };
       },
       computed: {
+        pageTitle() {
+          const titles = {
+            dashboard: '工作台',
+            controls: 'App 控件库',
+            automation: '流程编排',
+            templates: '任务模板',
+            logs: '执行日志',
+            devices: '设备管理',
+            codes: '授权管理'
+          };
+          return titles[this.tab] || '自动任务助手';
+        },
+        totalControlCount() {
+          return this.apps.reduce((sum, app) => sum + Number(app.controlCount || 0), 0);
+        },
         controls() {
           return this.snapshot?.controls || [];
         },
@@ -1070,7 +1205,7 @@
             counts.set('全部', counts.get('全部') + 1);
             counts.set(category, (counts.get(category) || 0) + 1);
           });
-          const order = ['全部', '顶部频道', '底部导航', '视频操作', '作者信息', '视频内容', '评论区', '主页控件', '输入框', '系统入口', '其它'];
+          const order = ['全部', '功能入口', '功能操作', '顶部频道', '底部导航', '视频操作', '作者信息', '视频内容', '评论区', '主页控件', '输入框', '系统入口', '分组信息', '其它'];
           return [...counts.entries()]
             .sort((a, b) => {
               const ai = order.indexOf(a[0]);
@@ -1767,10 +1902,40 @@
           if (technical) return this.humanControlType(control);
           return '';
         },
+        assistantControlLabel(control) {
+          const text = (control.text || '').trim();
+          const desc = (control.contentDescription || '').trim();
+          const raw = `${text} ${desc}`;
+          if (desc.startsWith('功能入口：')) return desc;
+          if (raw.includes('开始')) return text || desc || '开始按钮';
+          if (raw.includes('暂停')) return text || desc || '暂停按钮';
+          if (raw.includes('介绍')) return text || desc || '介绍按钮';
+          if (['首页', '发现', '个人'].includes(text)) return `底部${text}`;
+          const featureNames = [
+            '基础观看', '垂直观看', '点赞浏览', '普通浏览', '智能浏览', '智能宣传',
+            '评论浏览', '喜欢浏览', '直播浏览', '行业搜索', '同城宣传', '万能推广',
+            '粉丝浏览', '智能推广', '直播宣传', '普通观看', '精准宣传', '榜单私信',
+            '万能观看', '视频浏览', '行业推广'
+          ];
+          if (featureNames.includes(text)) return `功能入口：${text}`;
+          if (text.includes('项')) return '分组数量标记';
+          return '';
+        },
+        assistantControlCategory(control) {
+          const label = this.assistantControlLabel(control);
+          if (label.startsWith('功能入口')) return '功能入口';
+          if (label.includes('开始') || label.includes('暂停') || label.includes('介绍')) return '功能操作';
+          if (label.startsWith('底部')) return '底部导航';
+          if (label.includes('分组')) return '分组信息';
+          return '其它';
+        },
         isTechnicalLabel(value) {
           return /^(androidx?|com\.|java\.|kotlin\.)/.test(value || '') || (value || '').includes(':id/');
         },
         controlCategory(control) {
+          if (this.snapshot?.packageName === 'com.autotask.permission') {
+            return this.assistantControlCategory(control);
+          }
           if (this.snapshot?.packageName === 'com.ss.android.ugc.aweme') {
             return this.douyinControlCategory(control);
           }
@@ -1779,6 +1944,7 @@
           return '其它';
         },
         semanticControlLabel(control) {
+          if (this.snapshot?.packageName === 'com.autotask.permission') return this.assistantControlLabel(control);
           if (!this.snapshot || this.snapshot.packageName !== 'com.ss.android.ugc.aweme') return '';
           return this.douyinControlLabel(control);
         },
