@@ -980,7 +980,7 @@
                 </div>
                 <div class="field">
                   <label>动作类型</label>
-                  <select v-model="activeNode.type">
+                  <select v-model="activeNode.type" @change="normalizeActiveNode">
                     <option value="launch">启动 App</option>
                     <option value="click">点击控件</option>
                     <option value="tap">点击坐标</option>
@@ -1003,6 +1003,18 @@
                 <div class="field">
                   <label>执行后等待秒数</label>
                   <input type="number" min="0" step="0.5" v-model.number="activeNode.waitSeconds">
+                </div>
+                <div class="field" v-if="supportsNodeRepeat(activeNode)">
+                  <label>节点内循环次数</label>
+                  <input type="number" min="1" max="999" v-model.number="activeNode.repeatCount">
+                </div>
+                <div class="field" v-if="supportsNodeRepeat(activeNode)">
+                  <label>每轮继续概率（%）</label>
+                  <input type="number" min="0" max="100" step="1" v-model.number="activeNode.loopProbability">
+                </div>
+                <div class="field" v-if="supportsNodeRepeat(activeNode)">
+                  <label>每轮间隔秒数</label>
+                  <input type="number" min="0" step="0.5" v-model.number="activeNode.intervalSeconds">
                 </div>
                 <div class="field" v-if="activeNode.type === 'click'">
                   <label>目标控件</label>
@@ -1071,14 +1083,6 @@
                   <label>起步长按毫秒</label>
                   <input type="number" min="0" step="50" v-model.number="activeNode.holdMs">
                 </div>
-                <div class="field" v-if="activeNode.type === 'swipe'">
-                  <label>重复次数</label>
-                  <input type="number" min="1" max="99" v-model.number="activeNode.repeatCount">
-                </div>
-                <div class="field" v-if="activeNode.type === 'swipe'">
-                  <label>每次滑动间隔秒数</label>
-                  <input type="number" min="0" step="0.5" v-model.number="activeNode.intervalSeconds">
-                </div>
                 <div class="field" v-if="activeNode.type === 'input'">
                   <label>文本来源</label>
                   <select v-model="activeNode.textSource">
@@ -1133,6 +1137,10 @@
                 <div class="field" v-if="activeNode.type === 'loop'">
                   <label>循环次数</label>
                   <input type="number" min="1" max="999" v-model.number="activeNode.repeatCount">
+                </div>
+                <div class="field" v-if="activeNode.type === 'loop'">
+                  <label>每轮继续概率（%）</label>
+                  <input type="number" min="0" max="100" step="1" v-model.number="activeNode.loopProbability">
                 </div>
                 <div class="field" v-if="activeNode.type === 'loop'">
                   <label>每轮间隔秒数</label>
@@ -1229,7 +1237,8 @@
                 <div v-if="node.type === 'tap'">坐标 {{ node.xPoint || 0 }}{{ node.coordinateMode === 'percent' ? '%' : '' }}, {{ node.yPoint || 0 }}{{ node.coordinateMode === 'percent' ? '%' : '' }}</div>
                 <div v-if="node.type === 'swipe'">{{ swipeNodeSummary(node) }}</div>
                 <div v-if="node.type === 'input'">{{ inputNodeSummary(node) }}</div>
-                <div v-if="node.type === 'loop'">循环 {{ node.repeatCount || 1 }} 次，间隔 {{ node.intervalSeconds || 0 }} 秒</div>
+                <div v-if="nodeLoopSummary(node)">{{ nodeLoopSummary(node) }}</div>
+                <div v-if="node.type === 'loop'">循环 {{ node.repeatCount || 1 }} 次，概率 {{ node.loopProbability ?? 100 }}%，间隔 {{ node.intervalSeconds || 0 }} 秒</div>
                 <div>执行后等待 {{ node.waitSeconds || 0 }} 秒</div>
               </div>
             </article>
@@ -1832,6 +1841,9 @@
             controlText: this.controlLabel(control),
             viewId: control.viewId,
             bounds: this.controlBoundsPayload(control),
+            repeatCount: 1,
+            loopProbability: 100,
+            intervalSeconds: 0,
             waitSeconds: 1,
             x: 80 + this.graphNodes.length * 250,
             y: 90 + (this.graphNodes.length % 4) * 120
@@ -1842,7 +1854,16 @@
         normalizeNode(node) {
           if (node.type === 'tap' && !node.coordinateMode) node.coordinateMode = 'absolute';
           if (node.type === 'swipe' && !node.coordinateMode) node.coordinateMode = 'absolute';
+          if (this.supportsNodeRepeat(node)) {
+            if (!node.repeatCount) node.repeatCount = 1;
+            if (node.loopProbability == null) node.loopProbability = 100;
+            if (node.intervalSeconds == null) node.intervalSeconds = 0;
+          }
+          if (node.type === 'loop' && node.loopProbability == null) node.loopProbability = 100;
           return node;
+        },
+        normalizeActiveNode() {
+          if (this.activeNode) this.normalizeNode(this.activeNode);
         },
         addWaitNode() {
           const node = {
@@ -1870,6 +1891,9 @@
             absoluteY: point.y,
             screenWidth: this.snapshotWidth(),
             screenHeight: this.snapshotHeight(),
+            repeatCount: 1,
+            loopProbability: 100,
+            intervalSeconds: 0,
             waitSeconds: 1,
             x: 80 + this.graphNodes.length * 250,
             y: 90 + (this.graphNodes.length % 4) * 120
@@ -1900,6 +1924,7 @@
             durationMs: 450,
             holdMs: 0,
             repeatCount: 1,
+            loopProbability: 100,
             intervalSeconds: 0.5,
             waitSeconds: 1,
             x: 80 + this.graphNodes.length * 250,
@@ -1921,6 +1946,9 @@
             controlText: control ? this.controlLabel(control) : '',
             viewId: control?.viewId || '',
             bounds: control ? this.controlBoundsPayload(control) : null,
+            repeatCount: 1,
+            loopProbability: 100,
+            intervalSeconds: 0,
             waitSeconds: 1,
             x: 80 + this.graphNodes.length * 250,
             y: 90 + (this.graphNodes.length % 4) * 120
@@ -1954,6 +1982,9 @@
             bounds: control ? this.controlBoundsPayload(control) : null,
             detectTimeoutSeconds: 3,
             pollSeconds: 0.5,
+            repeatCount: 1,
+            loopProbability: 100,
+            intervalSeconds: 0,
             waitSeconds: 0,
             x: 80 + this.graphNodes.length * 250,
             y: 90 + (this.graphNodes.length % 4) * 120
@@ -1972,6 +2003,9 @@
             requiredControls: Array.isArray(pattern?.requiredControls) ? JSON.parse(JSON.stringify(pattern.requiredControls)) : [],
             detectTimeoutSeconds: 3,
             pollSeconds: 0.5,
+            repeatCount: 1,
+            loopProbability: 100,
+            intervalSeconds: 0,
             waitSeconds: 0,
             x: 80 + this.graphNodes.length * 250,
             y: 90 + (this.graphNodes.length % 4) * 120
@@ -1985,6 +2019,7 @@
             type: 'loop',
             label: '循环',
             repeatCount: 3,
+            loopProbability: 100,
             intervalSeconds: 1,
             waitSeconds: 0,
             x: 80 + this.graphNodes.length * 250,
@@ -2224,6 +2259,17 @@
           if (node.type === 'loop') return '循环';
           return '等待';
         },
+        supportsNodeRepeat(node) {
+          return !!node && ['click', 'tap', 'swipe', 'input', 'condition', 'recognizePage'].includes(node.type);
+        },
+        nodeLoopSummary(node) {
+          if (!this.supportsNodeRepeat(node)) return '';
+          const count = Number(node.repeatCount || 1);
+          const probability = node.loopProbability == null ? 100 : Number(node.loopProbability);
+          const interval = Number(node.intervalSeconds || 0);
+          if (count <= 1 && probability >= 100 && interval <= 0) return '';
+          return `循环 ${count} 次，继续概率 ${probability}%，间隔 ${interval} 秒`;
+        },
         inputNodeSummary(node) {
           if (node.textSource === 'clipboard') return '输入剪贴板内容';
           if (node.textSource === 'variable') return `输入变量：${node.inputText || '-'}`;
@@ -2231,8 +2277,7 @@
         },
         swipeNodeSummary(node) {
           const unit = node.coordinateMode === 'percent' ? '%' : '';
-          const repeat = Number(node.repeatCount || 1) > 1 ? `，重复 ${node.repeatCount} 次` : '';
-          return `从 ${node.startX || 0}${unit},${node.startY || 0}${unit} 到 ${node.endX || 0}${unit},${node.endY || 0}${unit}${repeat}`;
+          return `从 ${node.startX || 0}${unit},${node.startY || 0}${unit} 到 ${node.endX || 0}${unit},${node.endY || 0}${unit}`;
         },
         appName(packageName) {
           const app = this.apps.find(item => item.packageName === packageName);
