@@ -1266,6 +1266,10 @@
                   <input type="number" min="1" max="999" v-model.number="activeNode.repeatCount" :placeholder="activeNode.repeatSource === 'app' ? 'App 未填写时使用' : '这段流程总共执行几轮'">
                 </div>
                 <div class="field" v-if="activeNode.type === 'loop'">
+                  <label>没有画回线时，自动循环前几步</label>
+                  <input type="number" min="1" max="50" v-model.number="activeNode.loopBackCount">
+                </div>
+                <div class="field" v-if="activeNode.type === 'loop'">
                   <label>每轮继续概率（%）</label>
                   <input type="number" min="0" max="100" step="1" v-model.number="activeNode.loopProbability">
                 </div>
@@ -2335,7 +2339,7 @@
             label: '循环',
             repeatCount: 3,
             repeatSource: 'fixed',
-            loopBackCount: 2,
+            loopBackCount: 1,
             loopProbability: 100,
             intervalSeconds: 1,
             waitSeconds: 0,
@@ -2680,7 +2684,8 @@
           const interval = Number(node.intervalSeconds || 0);
           const start = this.nodeById(node.loopStartNodeId)?.label;
           const end = this.nodeById(node.loopEndNodeId)?.label;
-          const range = start && end ? `，范围 ${start} 到 ${end}` : '';
+          const backCount = Number(node.loopBackCount || 1);
+          const range = start && end ? `，范围 ${start} 到 ${end}` : `，自动回前 ${backCount} 步`;
           return `循环 ${count} 轮（${source}）${range}，概率 ${probability}%，间隔 ${interval} 秒`;
         },
         waitNodeSummary(node) {

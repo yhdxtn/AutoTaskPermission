@@ -201,7 +201,7 @@ class AutomationAccessibilityService : AccessibilityService() {
             } else {
                 executeNodeWithRepeat(node)
             }
-            val next = flow.nextNode(node.id, outcome)
+            val next = flow.nextNode(node, outcome)
             if (next == null) {
                 sendFloatingLog("流程结束：${node.label}")
                 sendRunnerStatus("已完成", "流程结束：${node.label}")
@@ -696,7 +696,8 @@ class AutomationAccessibilityService : AccessibilityService() {
         val nodes: List<FlowNode>,
         val edges: List<FlowEdge>
     ) {
-        fun nextNode(fromId: String, outcome: String): NextNode? {
+        fun nextNode(currentNode: FlowNode, outcome: String): NextNode? {
+            val fromId = currentNode.id
             val exactModes = when (outcome) {
                 "found" -> listOf("found", "true")
                 "missing" -> listOf("missing", "false")
@@ -705,9 +706,36 @@ class AutomationAccessibilityService : AccessibilityService() {
             val outgoing = edges.filter { it.from == fromId }
             val candidates = outgoing.filter { it.mode in exactModes }
                 .ifEmpty { outgoing.filter { it.mode == "next" || it.mode.isBlank() } }
-            val edge = candidates.firstOrNull { it.shouldTrigger() } ?: return null
+            val edge = candidates.firstOrNull { it.shouldTrigger() }
+                ?: fallbackLoopEdge(currentNode, outcome)
+                ?: return null
             val next = nodes.firstOrNull { it.id == edge.to } ?: return null
             return NextNode(next, edge.delayDurationSeconds())
+        }
+
+        private fun fallbackLoopEdge(currentNode: FlowNode, outcome: String): FlowEdge? {
+            if (currentNode.type != "loop") return null
+            val currentIndex = nodes.indexOfFirst { it.id == currentNode.id }
+            if (currentIndex < 0) return null
+            return if (outcome == "loop") {
+                val backCount = currentNode.int("loopBackCount", 1).coerceAtLeast(1)
+                val targetIndex = (currentIndex - backCount).coerceAtLeast(0)
+                FlowEdge.synthetic(
+                    from = currentNode.id,
+                    to = nodes[targetIndex].id,
+                    mode = "loop",
+                    delaySeconds = currentNode.double("intervalSeconds", 0.0)
+                )
+            } else if (outcome == "done" && currentIndex + 1 < nodes.size) {
+                FlowEdge.synthetic(
+                    from = currentNode.id,
+                    to = nodes[currentIndex + 1].id,
+                    mode = "done",
+                    delaySeconds = currentNode.double("waitSeconds", 0.0)
+                )
+            } else {
+                null
+            }
         }
 
         companion object {
@@ -752,6 +780,18 @@ class AutomationAccessibilityService : AccessibilityService() {
         }
 
         companion object {
+            fun synthetic(from: String, to: String, mode: String, delaySeconds: Double): FlowEdge =
+                FlowEdge(
+                    from = from,
+                    to = to,
+                    mode = mode,
+                    probability = 100,
+                    delaySeconds = delaySeconds,
+                    delayMode = "fixed",
+                    delayMinSeconds = delaySeconds,
+                    delayMaxSeconds = delaySeconds
+                )
+
             fun fromJson(json: JSONObject): FlowEdge =
                 FlowEdge(
                     from = json.optString("from"),
