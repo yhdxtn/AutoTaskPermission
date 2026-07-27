@@ -128,6 +128,15 @@ public class AutomationService {
         );
     }
 
+    @Transactional
+    public void deleteAppData(String packageName) {
+        String normalizedPackageName = requiredTrim(packageName, "应用包名不能为空");
+        flowRepository.deleteByPackageName(normalizedPackageName);
+        pagePatternRepository.deleteByPackageName(normalizedPackageName);
+        snapshotRepository.deleteByPackageName(normalizedPackageName);
+        appProfileRepository.deleteById(normalizedPackageName);
+    }
+
     @Transactional(readOnly = true)
     public SnapshotResponse latestSnapshot(String packageName) {
         UiSnapshot snapshot = snapshotRepository.findFirstByPackageNameOrderByCapturedAtDesc(packageName)

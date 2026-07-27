@@ -16,6 +16,8 @@ public interface UiSnapshotRepository extends JpaRepository<UiSnapshot, Long> {
 
     List<UiSnapshot> findByPackageNameOrderByCapturedAtDesc(String packageName);
 
+    void deleteByPackageName(String packageName);
+
     @Query("select count(c) from UiControl c where c.snapshot.id = :snapshotId")
     long countControlsBySnapshotId(@Param("snapshotId") Long snapshotId);
 }

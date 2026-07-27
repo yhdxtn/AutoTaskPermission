@@ -8,4 +8,6 @@ public interface AutomationFlowRepository extends JpaRepository<AutomationFlow, 
     List<AutomationFlow> findByPackageNameOrderByUpdatedAtDesc(String packageName);
 
     List<AutomationFlow> findByPackageNameAndEnabledTrueOrderByUpdatedAtDesc(String packageName);
+
+    void deleteByPackageName(String packageName);
 }

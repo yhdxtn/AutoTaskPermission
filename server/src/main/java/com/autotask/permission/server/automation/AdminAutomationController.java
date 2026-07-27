@@ -42,6 +42,12 @@ public class AdminAutomationController {
         return service.updateAppRemark(packageName, request);
     }
 
+    @DeleteMapping("/apps/{packageName}")
+    ResponseEntity<Void> deleteAppData(@PathVariable String packageName) {
+        service.deleteAppData(packageName);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/snapshots/latest")
     SnapshotResponse latestSnapshot(@RequestParam String packageName) {
         return service.latestSnapshot(packageName);

@@ -395,6 +395,7 @@ class MainActivity : Activity() {
             .putBoolean(KEY_FEATURE_RUNNING, true)
             .apply()
         sendFloatingLog("开始执行：$featureName")
+        sendRunnerCommand(ACTION_START_FEATURE, featureName)
         Toast.makeText(this, "已开始：$featureName", Toast.LENGTH_SHORT).show()
     }
 
@@ -404,6 +405,7 @@ class MainActivity : Activity() {
             .putBoolean(KEY_FEATURE_RUNNING, false)
             .apply()
         sendFloatingLog("已暂停：$featureName")
+        sendRunnerCommand(ACTION_PAUSE_FEATURE, featureName)
         Toast.makeText(this, "已暂停：$featureName", Toast.LENGTH_SHORT).show()
     }
 
@@ -528,6 +530,15 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun sendRunnerCommand(command: String, featureName: String) {
+        sendBroadcast(
+            Intent(AutomationAccessibilityService.ACTION_RUNNER_COMMAND)
+                .setPackage(packageName)
+                .putExtra(AutomationAccessibilityService.EXTRA_RUNNER_COMMAND, command)
+                .putExtra(AutomationAccessibilityService.EXTRA_FEATURE_NAME, featureName)
+        )
+    }
+
     private fun applySystemBarInsets() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             applySystemBarInsetsApi30()
@@ -606,5 +617,7 @@ class MainActivity : Activity() {
         private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
         private const val KEY_SELECTED_FEATURE = "selected_feature"
         private const val KEY_FEATURE_RUNNING = "feature_running"
+        private const val ACTION_START_FEATURE = "start"
+        private const val ACTION_PAUSE_FEATURE = "pause"
     }
 }

@@ -348,7 +348,8 @@
       min-height: 0;
     }
     .grid.controls-only {
-      grid-template-columns: 300px minmax(560px, 1fr);
+      grid-template-columns: 360px minmax(680px, 1fr);
+      height: calc(100vh - 88px);
     }
     .pane {
       min-height: 0;
@@ -449,6 +450,23 @@
       margin-top: 8px;
       min-height: 0;
     }
+    .control-workbench {
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      min-height: 0;
+    }
+    .phone-column {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      justify-items: start;
+    }
+    .control-list-column {
+      min-width: 0;
+      min-height: 0;
+    }
     .control-picker-trigger {
       width: 100%;
       height: 36px;
@@ -469,7 +487,7 @@
       font-size: 12px;
     }
     .control-picker-panel {
-      height: 320px;
+      height: 420px;
       margin-top: 8px;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -571,7 +589,7 @@
       position: relative;
       width: min(100%, 172px);
       aspect-ratio: 9 / 19.5;
-      margin: 0 auto;
+      margin: 0;
       border: 2px solid #263447;
       border-radius: 20px;
       background: #fbfcfe;
@@ -725,6 +743,8 @@
       .feature-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       .grid { grid-template-columns: 1fr; height: auto; overflow: visible; }
       .pane { min-height: 420px; }
+      .control-workbench { grid-template-columns: 1fr; }
+      .phone-column { justify-items: center; }
       .control-picker-panel { grid-template-columns: 1fr; height: 420px; }
       .control-picker-categories { border-right: 0; border-bottom: 1px solid var(--line); }
       .flow-canvas-pane { height: 520px; }
@@ -774,7 +794,7 @@
           <div class="module-grid">
             <article class="module-card" @click="tab = 'controls'">
               <strong>App 控件库</strong>
-              <p>打开手机端或 DY 页面后，控件会自动录入到这里，可按 App、页面快照、控件分类查找。</p>
+              <p>打开手机端或 DY 后，控件会录入到这里，可按 App、控件分类和关键词查找。</p>
             </article>
             <article class="module-card" @click="tab = 'automation'">
               <strong>流程编排</strong>
@@ -826,6 +846,7 @@
                 <strong>{{ app.remark || app.appName || app.packageName }}</strong>
                 <div class="muted">{{ app.packageName }}</div>
                 <div class="muted">控件 {{ app.controlCount }} 个 · {{ formatTime(app.capturedAt) }}</div>
+                <button class="small danger" style="margin-top:7px" @click.stop="deleteAppData(app)">删除采集</button>
               </article>
               <div v-if="apps.length === 0" class="empty">打开手机上的目标 App，等待无障碍服务采集后这里会出现。</div>
             </div>
@@ -837,99 +858,75 @@
               <span class="muted">{{ snapshot ? formatTime(snapshot.capturedAt) : '暂无快照' }}</span>
             </header>
             <div class="pane-body">
-              <div class="field">
-                <label>页面快照</label>
-                <select v-model="selectedSnapshotId" @change="selectSnapshot(selectedSnapshotId)">
-                  <option disabled value="">请选择页面快照</option>
-                  <option v-for="item in snapshots" :key="item.id" :value="String(item.id)">
-                    {{ item.windowTitle || item.activityName || '页面' }} · {{ item.controlCount }} 个控件 · {{ formatTime(item.capturedAt) }}
-                  </option>
-                </select>
-              </div>
-              <div v-if="snapshot" class="phone-preview">
-                <div
-                  v-for="control in drawableControls"
-                  :key="control.id"
-                  class="control-box"
-                  :class="{clickable: control.clickable, active: selectedControl && selectedControl.id === control.id}"
-                  :style="controlStyle(control)"
-                  :title="controlTooltip(control)"
-                  @click.stop="selectControl(control)"
-                ></div>
-              </div>
-              <div v-if="snapshot" class="control-summary">
-                <span>基准屏幕 {{ snapshotWidth() }}x{{ snapshotHeight() }}</span>
-                <span>控件位置会按比例适配不同分辨率</span>
+              <div v-if="snapshot" class="control-workbench">
+                <div class="phone-column">
+                  <div class="phone-preview">
+                    <div
+                      v-for="control in drawableControls"
+                      :key="control.id"
+                      class="control-box"
+                      :class="{clickable: control.clickable, active: selectedControl && selectedControl.id === control.id}"
+                      :style="controlStyle(control)"
+                      :title="controlTooltip(control)"
+                      @click.stop="selectControl(control)"
+                    ></div>
+                  </div>
+                  <div class="control-summary">
+                    <span>基准屏幕 {{ snapshotWidth() }}x{{ snapshotHeight() }}</span>
+                    <span>按比例适配不同分辨率</span>
+                  </div>
+                </div>
+                <div class="control-list-column">
+                  <div class="toolbar">
+                    <input v-model="controlKeyword" placeholder="搜索文字、描述、viewId">
+                    <button class="teal" :disabled="!selectedControl" @click="addClickNode(selectedControl)">添加点击节点</button>
+                  </div>
+                  <div class="control-picker" v-if="controlCategories.length">
+                    <button class="control-picker-trigger" @click="controlPickerOpen = !controlPickerOpen">
+                      <strong>{{ currentControlCategory.name }} {{ currentControlCategory.count }}</strong>
+                      <span>{{ controlPickerOpen ? '收起' : '展开选择控件' }} ▾</span>
+                    </button>
+                    <div class="control-picker-panel" v-if="controlPickerOpen">
+                      <div class="control-picker-categories">
+                        <button
+                          v-for="category in controlCategories"
+                          :key="category.name"
+                          class="control-category-option"
+                          :class="{active: selectedControlCategory === category.name}"
+                          @click="chooseControlCategory(category.name)"
+                        >
+                          {{ category.name }}
+                          <span>{{ category.count }}</span>
+                        </button>
+                      </div>
+                      <div class="control-picker-list">
+                        <article
+                          v-for="control in filteredControls"
+                          :key="control.id"
+                          class="control-card"
+                          :class="{active: selectedControl && selectedControl.id === control.id}"
+                          @click="selectControl(control)"
+                        >
+                          <div class="control-title">
+                            <strong>{{ controlLabel(control) }}</strong>
+                            <span class="control-tag">{{ controlCategory(control) }}</span>
+                          </div>
+                          <div class="muted" v-if="controlDescription(control)">{{ controlDescription(control) }}</div>
+                          <div class="control-summary">
+                            <span>{{ humanControlType(control) }}</span>
+                            <span>{{ control.clickable ? '可点击' : '只读' }}</span>
+                            <span>x{{ control.left }} y{{ control.top }} · {{ control.right - control.left }}x{{ control.bottom - control.top }}</span>
+                            <span>{{ controlPercentText(control) }}</span>
+                          </div>
+                          <div class="control-raw" v-if="technicalControlInfo(control)">原始：{{ technicalControlInfo(control) }}</div>
+                        </article>
+                        <div v-if="filteredControls.length === 0" class="empty">当前分类没有匹配的控件。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div v-else class="empty">请选择 App，或在手机上切换到目标页面。</div>
-
-              <div class="toolbar" style="margin-top:12px">
-                <input v-model="controlKeyword" placeholder="搜索文字、描述、viewId">
-                <button class="teal" :disabled="!selectedControl" @click="addClickNode(selectedControl)">添加点击节点</button>
-              </div>
-              <div class="recognition-box" v-if="snapshot">
-                <h3>页面识别</h3>
-                <div class="toolbar">
-                  <input v-model="pagePatternName" placeholder="页面名：如首页、评论区、个人主页">
-                  <input type="number" min="0" max="100" step="1" v-model.number="pagePatternProbability" title="识别到该页面后，本页动作触发概率">
-                  <input type="number" min="1" max="20" step="1" v-model.number="pagePatternMinHits" title="OCR关键词最少命中数量">
-                  <button class="primary" @click="savePagePattern">记录当前页面</button>
-                </div>
-                <textarea v-model="pagePatternDescription" placeholder="这个页面用来判断流程到了哪里，比如：视频首页、评论区弹层、作者主页"></textarea>
-                <textarea v-model="pagePatternOcrText" placeholder="OCR关键词，一行一个或用逗号分隔。比如：首页、推荐、关注、评论、说点什么、发私信"></textarea>
-                <div class="recognition-list" v-if="pagePatterns.length">
-                  <div class="recognition-item" v-for="pattern in pagePatterns" :key="pattern.id">
-                    <div>
-                      <strong>{{ pattern.name }}</strong>
-                      <div class="muted">{{ pattern.description || '已记录页面特征' }} · {{ (pattern.requiredControls || []).length }} 个关键控件 · OCR {{ (pattern.ocrKeywords || []).length }} 个 · 概率 {{ pattern.triggerProbability ?? 100 }}%</div>
-                    </div>
-                    <button class="small danger" @click="deletePagePattern(pattern)">删除</button>
-                  </div>
-                </div>
-              </div>
-              <div class="control-picker" v-if="controlCategories.length">
-                <button class="control-picker-trigger" @click="controlPickerOpen = !controlPickerOpen">
-                  <strong>{{ currentControlCategory.name }} {{ currentControlCategory.count }}</strong>
-                  <span>{{ controlPickerOpen ? '收起' : '展开选择控件' }} ▾</span>
-                </button>
-                <div class="control-picker-panel" v-if="controlPickerOpen">
-                  <div class="control-picker-categories">
-                    <button
-                      v-for="category in controlCategories"
-                      :key="category.name"
-                      class="control-category-option"
-                      :class="{active: selectedControlCategory === category.name}"
-                      @click="chooseControlCategory(category.name)"
-                    >
-                      {{ category.name }}
-                      <span>{{ category.count }}</span>
-                    </button>
-                  </div>
-                  <div class="control-picker-list">
-                    <article
-                      v-for="control in filteredControls"
-                      :key="control.id"
-                      class="control-card"
-                      :class="{active: selectedControl && selectedControl.id === control.id}"
-                      @click="selectControl(control)"
-                    >
-                      <div class="control-title">
-                        <strong>{{ controlLabel(control) }}</strong>
-                        <span class="control-tag">{{ controlCategory(control) }}</span>
-                      </div>
-                      <div class="muted" v-if="controlDescription(control)">{{ controlDescription(control) }}</div>
-                      <div class="control-summary">
-                        <span>{{ humanControlType(control) }}</span>
-                        <span>{{ control.clickable ? '可点击' : '只读' }}</span>
-                        <span>x{{ control.left }} y{{ control.top }} · {{ control.right - control.left }}x{{ control.bottom - control.top }}</span>
-                        <span>{{ controlPercentText(control) }}</span>
-                      </div>
-                      <div class="control-raw" v-if="technicalControlInfo(control)">原始：{{ technicalControlInfo(control) }}</div>
-                    </article>
-                    <div v-if="filteredControls.length === 0" class="empty">当前分类没有匹配的控件。</div>
-                  </div>
-                </div>
-              </div>
             </div>
           </section>
 
@@ -1186,6 +1183,14 @@
             <label class="muted">连线前等待</label>
             <input class="compact" type="number" min="0" step="0.5" v-model.number="edgeDelaySeconds">
             <span class="muted">秒</span>
+            <label class="muted">循环前</label>
+            <input class="compact" type="number" min="1" max="20" step="1" v-model.number="loopBackCount">
+            <span class="muted">步</span>
+            <input class="compact" type="number" min="1" max="999" step="1" v-model.number="loopRepeatCount" title="循环次数">
+            <span class="muted">次</span>
+            <input class="compact" type="number" min="0" max="100" step="1" v-model.number="loopProbability" title="每轮继续概率">
+            <span class="muted">%</span>
+            <button class="small" @click="wrapPreviousNodesAsLoop">循环前几步</button>
             <button class="small" @click="clearConnecting">取消连线</button>
             <button class="small" @click="autoLayout">自动整理</button>
           </div>
@@ -1419,6 +1424,10 @@
           edgeMode: 'next',
           edgeProbability: 100,
           edgeDelaySeconds: 0,
+          loopBackCount: 2,
+          loopRepeatCount: 3,
+          loopProbability: 100,
+          loopIntervalSeconds: 1,
           dragState: null,
           panState: null,
           codes: [],
@@ -1488,7 +1497,10 @@
           controls.forEach(control => {
             const category = this.controlCategory(control);
             const label = this.controlLabel(control);
-            const key = (category === '底部导航' || category === '顶部频道')
+            const semantic = this.semanticControlLabel(control);
+            const key = (this.snapshot?.packageName === 'com.ss.android.ugc.aweme' && semantic)
+              ? `${category}:${label}`
+              : (category === '底部导航' || category === '顶部频道')
               ? `${category}:${label}`
               : `control:${control.id}`;
             const current = byKey.get(key);
@@ -1612,6 +1624,8 @@
           const nodes = Array.isArray(flow?.nodes) ? flow.nodes : [];
           const edges = Array.isArray(flow?.edges) ? flow.edges : [];
           const has = type => nodes.some(node => node.type === type);
+          const textOf = node => `${node.label || ''} ${node.controlText || ''} ${node.pageName || ''}`;
+          const hasText = words => nodes.some(node => words.some(word => textOf(node).includes(word)));
           return [
             {
               key: 'flow',
@@ -1632,16 +1646,64 @@
               tip: '配置“识别页面”或“判断控件”，才能做到找不到控件走备用线。'
             },
             {
+              key: 'top-channel',
+              title: '顶部频道/入口',
+              done: hasText(['推荐频道', '关注频道', '商城频道', '同城频道', '顶部']),
+              tip: '可配置推荐、关注、商城、同城等顶部入口，适合不同功能先切页面。'
+            },
+            {
+              key: 'bottom-nav',
+              title: '底部导航',
+              done: hasText(['底部首页', '底部朋友', '底部消息', '底部我的', '底部发布']),
+              tip: '底部 5 个入口都可以作为控件使用，适合先回首页或切换消息/我的。'
+            },
+            {
               key: 'action',
               title: '核心动作',
               done: nodes.some(node => ['click', 'tap', 'swipe', 'input'].includes(node.type)),
               tip: '至少配置点击控件、点坐标、滑动或输入中的一种。'
             },
             {
+              key: 'video-actions',
+              title: '视频互动控件',
+              done: hasText(['点赞', '评论', '收藏', '转发', '作者头像', '关注按钮']),
+              tip: '点赞、评论、收藏、转发、作者头像、关注等都可以单独配置概率。'
+            },
+            {
+              key: 'coordinate',
+              title: '坐标与分辨率适配',
+              done: nodes.some(node => ['tap', 'swipe', 'click'].includes(node.type) && (node.coordinateMode === 'percent' || node.bounds?.centerXRatio != null)),
+              tip: '点坐标和滑动默认用百分比，换安卓分辨率也能按比例执行。'
+            },
+            {
+              key: 'wait',
+              title: '等待与停留',
+              done: has('wait') || nodes.some(node => Number(node.waitSeconds || 0) > 0),
+              tip: '每步执行后可等待，也可以单独放等待节点模拟停留。'
+            },
+            {
+              key: 'input',
+              title: '输入文本',
+              done: has('input'),
+              tip: '评论、搜索、私信等需要输入文本时，在输入节点配置文本来源。'
+            },
+            {
               key: 'branch',
               title: '分支和概率',
               done: edges.some(edge => ['found', 'missing', 'true', 'false'].includes(edge.mode)) || edges.some(edge => Number(edge.probability) < 100),
               tip: '建议给识别成功、识别失败、概率触发分别连线。'
+            },
+            {
+              key: 'loop',
+              title: '循环次数',
+              done: has('loop') || nodes.some(node => Number(node.repeatCount || 1) > 1),
+              tip: '滑动、点击、输入等节点可以设置循环次数和每轮继续概率。'
+            },
+            {
+              key: 'fallback',
+              title: '找不到备用线',
+              done: edges.some(edge => ['missing', 'false'].includes(edge.mode)),
+              tip: '识别不到控件或页面时，连到备用节点，避免流程卡死。'
             }
           ];
         },
@@ -1673,10 +1735,30 @@
           this.accountText = `账号：${account.username}，到期：${this.formatTime(account.expiresAt)}`;
         },
         async loadApps() {
-          this.apps = await this.request('/api/admin/automation/apps') || [];
+          const data = await this.request('/api/admin/automation/apps') || [];
+          this.apps = data.filter(app => app.packageName !== 'com.autotask.permission');
+          if (this.selectedPackage && !this.apps.some(app => app.packageName === this.selectedPackage)) {
+            this.selectedPackage = '';
+            this.snapshot = null;
+            this.snapshots = [];
+            this.selectedSnapshotId = '';
+          }
           if (!this.selectedPackage && this.apps.length) {
             await this.selectApp(this.apps[0].packageName);
           }
+        },
+        async deleteAppData(app) {
+          if (!confirm(`确定删除“${app.remark || app.appName || app.packageName}”的采集数据和相关流程？`)) return;
+          await this.request(`/api/admin/automation/apps/${encodeURIComponent(app.packageName)}`, { method: 'DELETE' });
+          if (this.selectedPackage === app.packageName) {
+            this.selectedPackage = '';
+            this.snapshot = null;
+            this.snapshots = [];
+            this.selectedSnapshotId = '';
+            this.resetFlow();
+          }
+          await this.loadApps();
+          this.notify('App 采集数据已删除');
         },
         async selectApp(packageName) {
           if (!packageName) return;
@@ -2054,6 +2136,7 @@
             type: 'loop',
             label: '循环',
             repeatCount: 3,
+            loopBackCount: 2,
             loopProbability: 100,
             intervalSeconds: 1,
             waitSeconds: 0,
@@ -2062,6 +2145,42 @@
           };
           this.graphNodes.push(node);
           this.activeNodeId = node.id;
+        },
+        wrapPreviousNodesAsLoop() {
+          const count = Math.max(1, Math.min(Number(this.loopBackCount || 1), this.graphNodes.length));
+          if (this.graphNodes.length < 1) return this.notify('先添加要循环的节点');
+          const block = this.graphNodes.slice(-count);
+          const first = block[0];
+          const last = block[block.length - 1];
+          const loopNode = {
+            id: this.newId('node'),
+            type: 'loop',
+            label: `循环前${count}步`,
+            repeatCount: Math.max(1, Number(this.loopRepeatCount || 1)),
+            loopBackCount: count,
+            loopProbability: this.normalizedProbability(this.loopProbability),
+            intervalSeconds: Math.max(0, Number(this.loopIntervalSeconds || 0)),
+            waitSeconds: 0,
+            x: last.x + 260,
+            y: last.y
+          };
+          this.graphNodes.push(loopNode);
+          this.addEdgeIfMissing(last.id, loopNode.id, 'next', 100, 0);
+          this.addEdgeIfMissing(loopNode.id, first.id, 'loop', this.normalizedProbability(this.loopProbability), Math.max(0, Number(this.loopIntervalSeconds || 0)));
+          this.activeNodeId = loopNode.id;
+          this.notify(`已把前 ${count} 步接成循环，后续节点接到“循环结束”即可`);
+        },
+        addEdgeIfMissing(from, to, mode, probability, delaySeconds) {
+          const exists = this.graphEdges.some(edge => edge.from === from && edge.to === to && (edge.mode || 'next') === mode);
+          if (exists) return;
+          this.graphEdges.push({
+            id: this.newId('edge'),
+            from,
+            to,
+            mode,
+            probability: this.normalizedProbability(probability),
+            delaySeconds: Math.max(0, Number(delaySeconds || 0))
+          });
         },
         replaceNodeControl(node) {
           if (!node || !this.selectedControl) return;
@@ -2457,6 +2576,7 @@
           const label = this.controlLabel(control);
           const text = (control.text || '').trim();
           const desc = (control.contentDescription || '').trim();
+          if (this.snapshot?.packageName === 'com.ss.android.ugc.aweme' && (this.isDynamicMetricText(text) || this.isDynamicMetricText(desc))) return '';
           if (text && text !== label && !label.endsWith(`：${text}`)) return `显示文字：${text}`;
           if (desc && desc !== label && desc !== text) return `描述：${desc}`;
           return '';
@@ -2565,11 +2685,15 @@
           const cls = control.className || '';
           const value = text.trim();
           const allText = `${text} ${desc} ${raw}`;
-          const numeric = /^[\d,.]+\s*[万亿wWkK]?$/.test(value);
+          const numeric = this.isDynamicMetricText(value);
           const isEdit = cls.toLowerCase().includes('edittext');
           const isImage = cls.toLowerCase().includes('image');
           const isButtonLike = control.clickable || control.focusable || isImage || cls.toLowerCase().includes('button');
 
+          if (/评论\s*[\d,.万亿wWkK]+/.test(allText)) return '评论按钮';
+          if (/(点赞|喜欢|未点赞)\s*[\d,.万亿wWkK]+/.test(allText)) return '点赞按钮';
+          if (/收藏\s*[\d,.万亿wWkK]+/.test(allText)) return '收藏按钮';
+          if (/(分享|转发)\s*[\d,.万亿wWkK]+/.test(allText)) return '转发按钮';
           if (isEdit) return '评论输入框';
           if (/^@/.test(value)) return '作者名字';
           if (text.includes('共') && text.includes('条评论')) return '评论区标题';
@@ -2610,7 +2734,7 @@
               return '作者头像';
             }
             if (cy >= 0.57 && cy < 0.66) return numeric ? '点赞数量' : '点赞按钮';
-            if (cy >= 0.66 && cy < 0.75) return numeric ? '评论数量' : '评论区按钮';
+            if (cy >= 0.66 && cy < 0.75) return numeric ? '评论数量' : '评论按钮';
             if (cy >= 0.75 && cy < 0.84) return numeric ? '收藏数量' : '收藏按钮';
             if (cy >= 0.84 && cy < 0.92) return numeric ? '转发数量' : '转发按钮';
             if (cy >= 0.92) return '同款/音乐入口';
@@ -2630,6 +2754,12 @@
 
           return '';
         },
+        isDynamicMetricText(value) {
+          const text = String(value || '').trim();
+          if (!text) return false;
+          if (/^[\d,.]+\s*[万亿wWkK]?$/.test(text)) return true;
+          return /^(评论|点赞|喜欢|未点赞|收藏|分享|转发)\s*[\d,.万亿wWkK]+$/.test(text);
+        },
         douyinControlCategory(control) {
           const label = this.douyinControlLabel(control);
           if (!label) return '其它';
@@ -2639,6 +2769,7 @@
           if (label.includes('评论区标题') || label.includes('评论输入入口')) return '评论区';
           if (
             label.includes('点赞') ||
+            label.includes('评论按钮') ||
             label.includes('评论区按钮') ||
             label.includes('评论数量') ||
             label.includes('收藏') ||

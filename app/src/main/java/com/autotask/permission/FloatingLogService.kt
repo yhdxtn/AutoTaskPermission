@@ -38,6 +38,8 @@ class FloatingLogService : Service() {
     private lateinit var bodyContainer: LinearLayout
     private lateinit var titleView: TextView
     private lateinit var foldButton: Button
+    private lateinit var statusView: TextView
+    private lateinit var stepView: TextView
     private lateinit var logView: TextView
     private lateinit var logScroll: ScrollView
     private val logLines = ArrayDeque<String>()
@@ -56,6 +58,12 @@ class FloatingLogService : Service() {
                 ACTION_ACTIVITY_LOG -> {
                     val message = intent.getStringExtra(EXTRA_MESSAGE) ?: return
                     appendLog(message)
+                }
+                ACTION_RUNNER_STATUS -> {
+                    updateRunnerStatus(
+                        intent.getStringExtra(EXTRA_STATUS).orEmpty(),
+                        intent.getStringExtra(EXTRA_STEP).orEmpty()
+                    )
                 }
                 ACTION_APP_VISIBILITY -> {
                     appVisible = intent.getBooleanExtra(EXTRA_APP_VISIBLE, false)
@@ -103,6 +111,7 @@ class FloatingLogService : Service() {
     private fun registerLogReceiver() {
         val filter = IntentFilter().apply {
             addAction(ACTION_ACTIVITY_LOG)
+            addAction(ACTION_RUNNER_STATUS)
             addAction(ACTION_APP_VISIBILITY)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -118,8 +127,8 @@ class FloatingLogService : Service() {
         val metrics = resources.displayMetrics
         val screenWidth = metrics.widthPixels
         val screenHeight = metrics.heightPixels
-        expandedWidth = min(dp(270), (screenWidth * 0.68f).toInt())
-        expandedHeight = min(dp(260), (screenHeight * 0.30f).toInt())
+        expandedWidth = min(dp(330), (screenWidth * 0.82f).toInt())
+        expandedHeight = min(dp(300), (screenHeight * 0.36f).toInt())
         collapsedWidth = min(dp(104), (screenWidth * 0.28f).toInt())
         collapsedHeight = dp(36)
 
@@ -160,10 +169,35 @@ class FloatingLogService : Service() {
         ))
 
         bodyContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         root.addView(bodyContainer, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+
+        statusView = TextView(this).apply {
+            text = "状态：待开始"
+            setTextColor(Color.rgb(177, 221, 255))
+            textSize = 12f
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        stepView = TextView(this).apply {
+            text = "当前：请选择功能后点开始"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        bodyContainer.addView(statusView)
+        bodyContainer.addView(stepView)
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        bodyContainer.addView(row, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
 
@@ -171,7 +205,7 @@ class FloatingLogService : Service() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
         }
-        bodyContainer.addView(controls, LinearLayout.LayoutParams(dp(82), LinearLayout.LayoutParams.MATCH_PARENT))
+        row.addView(controls, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.MATCH_PARENT))
         controls.addView(actionButton("介绍") {
             val mode = selectedFeature()
             appendLog("$mode：流程在后台录入，点开始后按后台配置执行")
@@ -181,11 +215,13 @@ class FloatingLogService : Service() {
             val mode = selectedFeature()
             activationPrefs.edit().putBoolean(KEY_FEATURE_RUNNING, true).apply()
             appendLog("开始执行：$mode")
+            sendRunnerCommand(ACTION_START_FEATURE, mode)
         })
         controls.addView(actionButton("暂停") {
             val mode = selectedFeature()
             activationPrefs.edit().putBoolean(KEY_FEATURE_RUNNING, false).apply()
             appendLog("已暂停：$mode")
+            sendRunnerCommand(ACTION_PAUSE_FEATURE, mode)
         })
         controls.addView(actionButton("主页") {
             startActivity(
@@ -217,7 +253,7 @@ class FloatingLogService : Service() {
             background = roundedBackground(Color.argb(180, 7, 13, 27), dp(10).toFloat())
             addView(logView)
         }
-        bodyContainer.addView(logScroll, LinearLayout.LayoutParams(
+        row.addView(logScroll, LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
         ).apply { marginStart = dp(8) })
 
@@ -307,6 +343,15 @@ class FloatingLogService : Service() {
     private fun selectedFeature(): String =
         activationPrefs.getString(KEY_SELECTED_FEATURE, null)?.takeIf { it.isNotBlank() } ?: "当前功能"
 
+    private fun sendRunnerCommand(command: String, featureName: String) {
+        sendBroadcast(
+            Intent(AutomationAccessibilityService.ACTION_RUNNER_COMMAND)
+                .setPackage(packageName)
+                .putExtra(AutomationAccessibilityService.EXTRA_RUNNER_COMMAND, command)
+                .putExtra(AutomationAccessibilityService.EXTRA_FEATURE_NAME, featureName)
+        )
+    }
+
     private fun attachDragHandler(header: View, params: WindowManager.LayoutParams) {
         var startX = 0
         var startY = 0
@@ -338,11 +383,29 @@ class FloatingLogService : Service() {
 
     private fun appendLog(message: String) {
         if (isCaptureNoise(message)) return
+        inferRunnerStatusFromLog(message)
         val line = "[${timeFormat.format(Date())}] $message"
         if (logLines.lastOrNull() == line) return
         logLines.addLast(line)
         while (logLines.size > 80) logLines.removeFirst()
         refreshLogs()
+    }
+
+    private fun updateRunnerStatus(status: String, step: String) {
+        if (!::statusView.isInitialized) return;
+        statusView.text = "状态：${status.ifBlank { "运行中" }}"
+        stepView.text = "当前：${step.ifBlank { "等待下一步" }}"
+    }
+
+    private fun inferRunnerStatusFromLog(message: String) {
+        if (!::statusView.isInitialized) return
+        when {
+            message.contains("执行器已启动") || message.contains("开始执行") -> updateRunnerStatus("运行中", message.substringAfter("：", message))
+            message.contains("执行：") -> updateRunnerStatus("运行中", message.substringAfter("执行："))
+            message.contains("已暂停") -> updateRunnerStatus("已暂停", message.substringAfter("：", "已暂停"))
+            message.contains("流程结束") -> updateRunnerStatus("已完成", message.substringAfter("：", "流程结束"))
+            message.contains("执行失败") -> updateRunnerStatus("异常", message.substringAfter("：", message))
+        }
     }
 
     private fun isCaptureNoise(message: String): Boolean =
@@ -401,8 +464,11 @@ class FloatingLogService : Service() {
 
     companion object {
         const val ACTION_ACTIVITY_LOG = "com.autotask.permission.ACTIVITY_LOG"
+        const val ACTION_RUNNER_STATUS = "com.autotask.permission.RUNNER_STATUS"
         const val ACTION_APP_VISIBILITY = "com.autotask.permission.APP_VISIBILITY"
         const val EXTRA_MESSAGE = "message"
+        const val EXTRA_STATUS = "status"
+        const val EXTRA_STEP = "step"
         const val EXTRA_APP_VISIBLE = "app_visible"
         const val EXTRA_FLOATING_ENABLED = "floating_enabled"
         private const val CHANNEL_ID = "floating_log"
@@ -410,5 +476,7 @@ class FloatingLogService : Service() {
         private const val KEY_FLOATING_WINDOW_ENABLED = "floating_window_enabled"
         private const val KEY_SELECTED_FEATURE = "selected_feature"
         private const val KEY_FEATURE_RUNNING = "feature_running"
+        private const val ACTION_START_FEATURE = "start"
+        private const val ACTION_PAUSE_FEATURE = "pause"
     }
 }
