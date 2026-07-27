@@ -19,6 +19,7 @@ class AutomationAccessibilityService : AccessibilityService() {
     private var lastReportTime = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (!AUTO_CAPTURE_ENABLED) return
         val packageName = event?.packageName?.toString() ?: return
         if (packageName != DOUYIN_PACKAGE) return
 
@@ -233,5 +234,6 @@ class AutomationAccessibilityService : AccessibilityService() {
         private const val MAX_CONTROLS = 160
         private const val MAX_LABEL_LENGTH = 32
         private const val REPORT_INTERVAL_MS = 1800L
+        private const val AUTO_CAPTURE_ENABLED = false
     }
 }

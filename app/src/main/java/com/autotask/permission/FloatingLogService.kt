@@ -337,12 +337,19 @@ class FloatingLogService : Service() {
     }
 
     private fun appendLog(message: String) {
+        if (isCaptureNoise(message)) return
         val line = "[${timeFormat.format(Date())}] $message"
         if (logLines.lastOrNull() == line) return
         logLines.addLast(line)
         while (logLines.size > 80) logLines.removeFirst()
         refreshLogs()
     }
+
+    private fun isCaptureNoise(message: String): Boolean =
+        message.contains("控件上传失败") ||
+            message.contains("已采集") ||
+            message.contains("开始采集") ||
+            message.contains("无障碍服务")
 
     private fun refreshLogs() {
         if (!::logView.isInitialized) return
