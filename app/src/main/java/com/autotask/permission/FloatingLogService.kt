@@ -26,6 +26,7 @@ import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.min
 
 class FloatingLogService : Service() {
@@ -115,10 +116,10 @@ class FloatingLogService : Service() {
         val metrics = resources.displayMetrics
         val screenWidth = metrics.widthPixels
         val screenHeight = metrics.heightPixels
-        expandedWidth = min(dp(430), (screenWidth * 0.92f).toInt())
-        expandedHeight = min(dp(300), (screenHeight * 0.38f).toInt())
-        collapsedWidth = min(dp(190), (screenWidth * 0.58f).toInt())
-        collapsedHeight = dp(42)
+        expandedWidth = min(dp(270), (screenWidth * 0.68f).toInt())
+        expandedHeight = min(dp(260), (screenHeight * 0.30f).toInt())
+        collapsedWidth = min(dp(104), (screenWidth * 0.28f).toInt())
+        collapsedHeight = dp(36)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -129,12 +130,12 @@ class FloatingLogService : Service() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.rgb(39, 135, 245))
-            setPadding(dp(10), 0, dp(6), 0)
+            setPadding(dp(6), 0, dp(4), 0)
         }
         titleView = TextView(this).apply {
             text = "自动任务助手 · 活动日志"
             setTextColor(Color.WHITE)
-            textSize = 13f
+            textSize = 12f
             gravity = Gravity.CENTER_VERTICAL
             setSingleLine(true)
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -148,10 +149,10 @@ class FloatingLogService : Service() {
             isAllCaps = false
             setTextColor(Color.WHITE)
             background = roundedBackground(Color.argb(70, 255, 255, 255), dp(8).toFloat())
-            setPadding(dp(6), 0, dp(6), 0)
+            setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { toggleFold() }
         }
-        header.addView(foldButton, LinearLayout.LayoutParams(dp(58), dp(30)))
+        header.addView(foldButton, LinearLayout.LayoutParams(dp(48), dp(26)))
         root.addView(header, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, collapsedHeight
         ))
@@ -168,7 +169,7 @@ class FloatingLogService : Service() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
         }
-        bodyContainer.addView(controls, LinearLayout.LayoutParams(dp(92), LinearLayout.LayoutParams.MATCH_PARENT))
+        bodyContainer.addView(controls, LinearLayout.LayoutParams(dp(82), LinearLayout.LayoutParams.MATCH_PARENT))
         controls.addView(actionButton("打开主页") {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -246,11 +247,14 @@ class FloatingLogService : Service() {
     private fun setFolded(folded: Boolean) {
         expanded = !folded
         bodyContainer.visibility = if (expanded) View.VISIBLE else View.GONE
-        titleView.text = if (expanded) "自动任务助手 · 活动日志" else "活动日志"
+        titleView.text = if (expanded) "自动任务助手 · 活动日志" else "日志"
         foldButton.text = if (expanded) "折叠" else "展开"
         overlayParams?.let { params ->
             params.width = if (expanded) expandedWidth else collapsedWidth
             params.height = if (expanded) expandedHeight else collapsedHeight
+            val metrics = resources.displayMetrics
+            params.x = params.x.coerceIn(0, max(0, metrics.widthPixels - params.width))
+            params.y = params.y.coerceIn(0, max(0, metrics.heightPixels - params.height))
             overlayView?.let { view ->
                 if (::windowManager.isInitialized) {
                     runCatching { windowManager.updateViewLayout(view, params) }
@@ -283,8 +287,8 @@ class FloatingLogService : Service() {
             setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { action() }
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(44)
-            ).apply { bottomMargin = dp(7) }
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40)
+            ).apply { bottomMargin = dp(6) }
         }
 
     private fun attachDragHandler(header: View, params: WindowManager.LayoutParams) {

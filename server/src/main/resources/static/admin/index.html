@@ -1043,7 +1043,7 @@
               byKey.set(key, control);
             }
           });
-          return [...byKey.values()];
+          return this.withDouyinBottomNavFallback([...byKey.values()]);
         },
         filteredControls() {
           const keyword = this.controlKeyword.trim().toLowerCase();
@@ -1606,6 +1606,42 @@
           if (control.viewId) score += 1;
           score += Math.min(4, ((control.right - control.left) * (control.bottom - control.top)) / 30000);
           return score;
+        },
+        withDouyinBottomNavFallback(controls) {
+          if (!this.snapshot || this.snapshot.packageName !== 'com.ss.android.ugc.aweme') return controls;
+          const width = this.snapshotWidth();
+          const height = this.snapshotHeight();
+          const bottomItems = [
+            { label: '底部首页', text: '首页', ratio: 0.10 },
+            { label: '底部朋友', text: '朋友', ratio: 0.30 },
+            { label: '底部发布按钮', text: '发布', ratio: 0.50 },
+            { label: '底部消息', text: '消息', ratio: 0.70 },
+            { label: '底部我的', text: '我', ratio: 0.90 }
+          ];
+          const labels = new Set(controls.map(control => this.controlLabel(control)));
+          const itemWidth = Math.round(width * 0.16);
+          const top = Math.round(height * 0.925);
+          const bottom = Math.round(height * 0.995);
+          const patched = [...controls];
+          bottomItems.forEach(item => {
+            if (labels.has(item.label)) return;
+            const centerX = Math.round(width * item.ratio);
+            patched.push({
+              id: `virtual-bottom-${item.text}`,
+              key: `virtual-bottom-${item.text}`,
+              text: item.text,
+              contentDescription: item.label,
+              className: 'virtual.BottomNavigationItem',
+              viewId: '',
+              clickable: true,
+              focusable: true,
+              left: Math.max(0, centerX - Math.round(itemWidth / 2)),
+              top,
+              right: Math.min(width, centerX + Math.round(itemWidth / 2)),
+              bottom
+            });
+          });
+          return patched;
         },
         startDrag(event, node) {
           this.activeNodeId = node.id;
